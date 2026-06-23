@@ -301,3 +301,70 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - 리뷰 시스템: 1CbmPsm 크롤러/자동분류 clone + reviewDaily 원천 확정 (Q11)
 - 회계운영 시트 추적로그 → Supabase sync 경로 (Q10 기존/이제 Q-acct)
 - P7 예약율·P8 인사이트·P18 위기진단 ctx 빌더 line-level (운영실장 최우선 3챕터)
+
+---
+
+# Day 4 (2026-06-23) — 회계 9쌍 완결 + P5/P11/P13 챕터 line-level + VOC 두 시트 + 정정 3건
+
+> ⚠ **정정 3건 먼저**:
+> 1. **[정정 Q12]** 캐치테이블은 **API 연동 자체가 불가능**(운영실장 확정). Day3의 "진짜 측정 파이프(`마케팅_캐치예약_상세`←캐치테이블 API)는 설계됨, 활성화 가능" 결론은 **틀림**. CON/SEL 캐치 객수/매출은 **영구 추정**(월별 비율 fallback)이 유일한 방법. "파이프 활성화 검토"는 불가능하므로 폐기.
+> 2. **[정정 P5 source]** P5 비용·마진은 **회계 9시트가 아니라 OP 매니저 입력 기원**(브랜드 대시보드 경유). 회계 9쌍은 **별개 결산 시스템**(회계담당 영역). 상세는 작업2.
+> 3. **[정정 Q11]** 대시보드 `reviewNeg7`/`reviewDaily`는 **내가 만든 게 아니라 기존 Apps Script**(`syncReviewData`)가 1CbmPsm에서 BI로 sync. 리뷰는 **Supabase 미이주** = 내 migration 산출물 아님(정직 보고). "너가 만든거"는 오해 — 내가 만든 건 회계/매출/할인/VOC sync뿐.
+
+## 작업1. 회계 9쌍 line-level 완결 ✅
+- ✅ **8개 매장 = 용산의 동일 복제본**: 공유 12파일 중 **11개 byte-identical(md5 일치)**, 정산보고서.js 포함. 유일 차이 = `Code.js` **정확히 2줄**(L98-99 허브 메뉴 와이어링). 8개 매장 Code.js는 서로도 md5 동일(단일 변종).
+- ✅ **허브 전용 2파일**: `bulk_labor_sync.js`(119)·`bulk_settlement_report.js`(170)는 **용산에만** 존재. 8개 매장엔 `ORI_LABOR_BRANCHES`/`runOri*` 참조 0건.
+- ✅ **fan-out 체인**: `runOriLaborSyncAllBranches`(bulk_labor_sync L28) → `ORI_LABOR_BRANCHES`(9 sheetId) 루프 → `openById`+`setActiveSpreadsheet` → `silentSyncLaborFromRoster_`(L88) → `syncTeamFromRoster_`(로스터동기화.js L146). **말단 함수는 8개 매장에도 동일 존재** → 각 매장 로컬 단독 동기화 가능, 9지점 동시 트리거만 용산 독점.
+- ✅ **`runMonthlySettlement` 자체 reconcile**(정산보고서.js L224, 9개 byte 동일): 입력시트 BOH/FOH D열 토탈 합산(`sheetTotals[team|account]`) **vs** `추적로그` 12열 동월 합산(`logTotals`, '시스템' 제외, `inputSection||userTeam` 키) → `Math.round` 후 `|diff|>1`=mismatch + `소모품예산 전용 관리` 완료/대기 카운트 → `{allMatch, mismatchCount, supplyComplete}`.
+- ✅ **Q10 답 (추적로그 → Supabase)**: **내 bridge `bridge_a_sync_accounting.js`**가 처리. `syncAccountLogsAll()`(L82) → 9 `ACCT_SHEETS`(L21) 각 `추적로그` 탭(12컬럼: 시트명/작성자(이름·이메일)/팀/금액/입력시간/거래처/결제방식/계정과목/재무팀확인/품목/입력섹션) read → `fact_account_log`로 ingest. 매핑(L9~18): `occurred_on←입력시간`, `amount←금액`, `category_id←계정과목`(한글→영문 `BR_CAT_MAP` 8분류: food/labor/rent/utility/supplies/marketing/equipment/etc, L35~63), `status←재무팀확인`(Y/O/확인/완료→verified else pending), `source_ref={sheetId}/{rowIdx}`(idempotent UQ). → **OP 경유 아님, 회계 9시트 직접 sync**.
+- 🟰 **결론**: 회계 9쌍 = 발주·인건비·소모품 **결산/검증** 시스템(회계담당). 추적로그→fact_account_log 직접 파이프 존재. **P5 비용(작업2)과 완전 별개 source**.
+
+## 작업2. P5 비용·마진 챕터 line-level ✅ ([정정] source = OP 기원)
+- ✅ **렌더 구조**(`ge_render_chapters_p5_p10.js` L28~93): 헤더(전월 마감) → Methodology(source=`매출_월별`+`임계값_정보`) → KPI 6카드(인건비율/푸드/음료/소모품/변동비합계/공헌이익률 + 전전월 cmpPP) → **5종 비용표 3개**(전사/브랜드/지점, v50.10에서 19→5 축소) → 12개월 추이 6차트(브랜드×인건비/푸드 + 임계 점선) → 마케팅비 2카드.
+- ✅ **계산식**(`calcMonthCosts` Code.js L7706~7737): `rev=sumF(rows,'실매출')`; `laborPct=labor/rev`, `foodPct=food/rev`, `bevPct`, `consPct`, `nonPct` 모두 **분모=실매출**; `마진율=(rev-5종합계)/rev`. 5종 금액 = `인건비_금액`·`식자재비`·`음료자재비`·`소모품비`·`비경상비`.
+- ✅ **[정정] source 재추적**: `매출_월별`은 **`syncMonthlyData()`**(`bf_sync_monthly.js` L14)가 채움 → **`SZI_DASHBOARD_ID`/`CON_DASHBOARD_ID`(브랜드 대시보드 시트)** 의 매장 탭에서 read(L76~85). 컬럼 `인건비율`/`푸드코스트`/`인건비`/`식자재비`/`음료자재비`/`소모품비`/`비경상비`(findCols L55~68). 이 브랜드 대시보드 값은 **매장 매니저 OP 입력 기원** — **회계 9시트 추적로그가 아님**. (※ 파일 주석 L2가 "회계시트(SZI/CON _대시보드)"로 헷갈리게 명명했으나 실체는 브랜드 대시보드, 회계 결산 9시트와 무관) → **운영실장 정정 코드로 확정** ✅.
+  - 흐름: OP 매장 매니저 입력 → 브랜드 대시보드(SZI/CON _대시보드) 월별 탭 → `syncMonthlyData` → BI `매출_월별` → `calcMonthCosts` → P5.
+- ✅ **4룰 ② (비용 경보)**: 임계 초과(`s.prev.laborPct > t.인건비_임계값`, `foodPct > t.푸드코스트_임계값`)=**medium**(L11841~45); **공헌이익률 전전월 대비 -5%p 하락**(`(s.prev.마진율 - s.pp.마진율) < -0.05`)=**high**(L11847~50). 즉 "+5%p"의 실체 = "마진율 5%p **악화**". 임계값=`readTab('임계값_정보')` 브랜드별(심퍼티쿠시 인건비≤27%·푸드≤23% / 콘피에르 인건비≤28%·푸드≤24%).
+
+## 작업3. P11 리뷰 & 평판 챕터 line-level ✅
+- ✅ **렌더**(`gb_render_chapter_p11_reviews.js` 463줄): 자체설문 섹션(브랜드별 KPI+매장 만족도표+코멘트) → 4×2 KPI(7일 리뷰/별점/호평/부정/SOP/전월 부정율) → 3차트(브랜드·지점 12주 추이+별점) → 카테고리별 부정 4주(8카테 + 지점×카테 매트릭스) → SOP/매뉴얼 → 최근 부정리뷰+SOP 매핑(15건)+Streamlit 링크.
+- ✅ **reviewDaily 출처**: `readTab('리뷰_일별')`(Code.js L7590) ← BI `1tKr70`. 원천 = `REVIEW_SHEET_ID='1CbmPsm…'`(L284) `통합_분류`+`부정리뷰_SOP매핑` 탭을 **`syncReviewData()`**(L792~)가 일별 집계 → BI `리뷰_일별`/`리뷰_부정` write(매일 06시).
+- ✅ **6컬럼**: 날짜/리뷰수/부정수(전체감정=='부정' 카운트)/평균별점(전체점수 가중)/SOP위반수(부정리뷰_SOP매핑 매치)/High위반수. `reviewNeg7`=직전7일 부정수 합(L8179).
+- ✅ **Supabase 리뷰 미이주 확정**: bridge_*.js 전부 review/리뷰 0건, `syncAllSheetsToSupabase`에 review 미포함. → 리뷰는 Apps Script 내부 BI 순환만.
+
+## 작업4. P13 매장 스코어카드 line-level ✅
+- ✅ **6축 + 가중치**(`매장점수(s)` Code.js L8426~8555): 매출10 / 고객만족20 / 인건비20 / 식자재20 / 운영품질20 / 위생10.
+| 축 | 라인 | 공식 핵심 |
+|---|---|---|
+| 매출 | 8429~39 | 달성률(ach) 3-tier piecewise: ≥100%→95~100 / 90~99→85~94 / 80~89→70~84 / 70~79→50~69 / 50~69→20~49 / <50→0~20 |
+| 고객만족 | 8479~528 | 외부70%(`호평율×60 + 별점/5×40`) + 자체설문30%(Bayesian: n≥200 그대로, 30~200 `(avg·n+4.5·50)/(n+50)`, n<30 제외). 둘 다 없으면 50 |
+| 인건비 | 8441~50 | `diff=(임계-laborPct)×100`(양수=양호) piecewise: ≥+3%p→95~100 / 0~3→70~95 / -2~0→50~70 / -5~-2→20~50 / <-5→0~20 |
+| 식자재 | 8452~61 | 인건비와 동일 구조(임계=푸드코스트) |
+| 운영품질 | 8463~77 | 부정율(negPct) piecewise(≤5%→90~100…>30%→0~25) − SOP −2점/건 − HighSOP −5점/건 |
+| 위생 | 8530~45 | `todayStr>='2026-06-01'` & 시니어점수>0일 때만. `시니어×0.7 + (100-min(50,미해결×10))×0.2 + (100-min(30,유통임박×5))×0.1`. **Critical 미해결≥1 → max 50 GATE** |
+- ✅ **종합**(L8547~55): 6축 가중평균. 위생 미가동(6/1 전) 시 5축 `/0.90` 비례 재분배. 현재(6/23)는 6축 활성.
+- ✅ **렌더**(`gc_…` 390줄): 점수공식 accordion → KPI요약 → 매장 종합표(80↑초록/60~80주황/<60빨강) → 매장별 6축 레이더+근거+AI액션 → 12개월 heatmap → 4개월 순위변화.
+- ⚠ `costRatioScore`(L8409)는 **정의만, 실제 미사용** — 매장점수는 위 `diff` piecewise를 직접 씀(주석/csuite 잔재).
+
+## 작업5. VOC 두 시트 관계 ✅ + 크롤러 ❓(Issue #1)
+- ✅ **1Ve6 "(SZI)_전지점 Brand FIC"** = 수기 오프라인 VOC. `브랜드 FIC` 메인탭(기간/지점/채널/날짜/접점/분류/성향/내용/FOH·BOH 파트장 체크) + 지점별 5탭(용산/서울역/성수/여의도/이스트폴). = 우리가 fact_voc로 sync한 원천.
+- ✅ **1CbmPsm "심퍼티쿠시 리뷰 아카이브"** = 자동 크롤+분류(19탭 중 4탭 코드확인): `통합_분류`(크롤 raw + **Claude 자동분류**: model=claude-sonnet-4-6, 프롬프트 v3, 채널=catchtable/google/naver_place, 8카테고리[음식·음료·서비스·환경·가격·접근성·예약·특별한날]×[감정·긍정·부정]+신뢰도+검토필요) / `V2_액션보드`(매장×SOP: 항목ID/도메인FOH·BOH/우선순위/위반건수/책임자/핵심표준/개선제안/샘플리뷰) / `V2_항목별빈도` / `부정리뷰_SOP매핑`.
+- ✅ **reviewNeg7 연결 확정**(가설 아님): 1CbmPsm `통합_분류`/`부정리뷰_SOP매핑` → `syncReviewData()`(매일06시) → BI `리뷰_일별`/`리뷰_부정` → `readTab` → P11 `reviewNeg7` → P1/P8 이상치(`reviewNeg7≥3 & negRate≥30%` → 알림, `gd_…` L346).
+- ⚠ **리뷰 파이프 혼재**: `syncReviewData`가 채우는 건 `리뷰_일별`+`리뷰_부정` 2개뿐. 나머지 4시트(`리뷰_카테고리/키워드/SOP빈도/개선제안`)는 **별도 Python/Streamlit `review_project`**가 채움(P11 L323 `review_project/dashboard.py`). → 리뷰 파이프라인 = **Apps Script sync + 외부 Python 2경로**.
+- ❓ **크롤러/자동분류/V2생성 내부 로직 미확보** → **GitHub Issue #1 등록**: bound scriptId 미확보(시트 owner ≠ clasp 로그인 계정, Sheets API 비활성). 운영실장이 아카이브 시트 → 확장프로그램 → Apps Script → scriptId 알려주면 해소.
+
+## Day 4 발견 요약
+1. ✅ 회계 9쌍 = 8개 용산 복제본 + 허브 fan-out. 추적로그→fact_account_log 직접 sync(내 bridge, BR_CAT_MAP 8분류). 결산 시스템 = P5와 별개.
+2. ✅ [정정] P5 비용 = 브랜드 대시보드(OP 매니저 입력)→매출_월별, 회계 아님. pct 분모=실매출. 4룰②=마진 -5%p high.
+3. ✅ P11 reviewNeg7 = 1CbmPsm 자동분류→syncReviewData→BI. Supabase 미이주. 리뷰 파이프 Apps Script+Python 혼재.
+4. ✅ P13 6축 piecewise 전체 확보. 위생 6/1 활성, Critical GATE max50.
+5. ✅ VOC = 1Ve6(수기 FIC) + 1CbmPsm(자동 크롤+Claude분류). 크롤러 내부는 Issue #1.
+
+## Day 4 질문 (❓)
+- ❓ Q13: 외부 Python/Streamlit `review_project`(리뷰_카테고리/키워드/SOP빈도/개선제안 생성)는 어디서 도는가(로컬/서버/GCP)? 이주 대상인가?
+- ❓ Q14 (Issue #1): 리뷰 아카이브(1CbmPsm) 크롤러 bound scriptId — 알려주시면 크롤/분류/V2 로직 line-level 확보.
+- ❓ Q15: P5 비용(브랜드 대시보드/OP 기원)과 회계 추적로그(fact_account_log)는 **같은 비용을 두 경로로 입력**하는 구조인가? 둘이 reconcile되는가, 독립인가? (이중입력/불일치 리스크 점검)
+
+## 다음 (Day 5)
+- P7 예약율 / P8 인사이트(이상치탐지 함수) / P18 위기진단 ctx 빌더 line-level — 운영실장 최우선 3챕터
+- Q15 비용 이중경로 reconcile 점검 (P5 OP비용 vs fact_account_log 회계비용 동월 대조)
