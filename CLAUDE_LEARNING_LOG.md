@@ -185,3 +185,82 @@ flowchart LR
 - P1 chart config 14개 정독 (Code.js 차트 init 블록: p1_brand/weekly/monthly/brand_monthly_trend/store_yoy_0~8/dow — 데이터변환·유형·색상·축)
 - 회계 9쌍 line-level (1쌍 대표 정독 → 공통 구조 → 9개 차이) + BI 집계 경로
 - VOC 1CbmPsm(19탭) vs 1Ve6 관계 + 리뷰 크롤러/자동분류 로직
+
+---
+
+# Day 3 (2026-06-23) — P1 차트 config + 회계 9쌍 line-level + VOC 두 시트 관계 + anomaly/캐치 추정
+
+## 작업1. P1 차트 14개 config 정독 (Code.js 차트 init 블록) ✅
+> 모두 `new Chart(el, {...})` 직접 호출. **글로벌 `Chart.defaults` 미변경**(안전룰 준수). 색 토큰: 초록 `#1DB954`(SZI/긍정), 분홍 `#ec4899`(CON), 주황 `#f59e0b`(SEL/현재월/진행중), 보라 `#a855f7`(주말).
+
+| canvas id | type | 데이터 소스 | 변환 | 색/스타일 |
+|---|---|---|---|---|
+| `p1_brand` | bar | `Object.values(브랜드).revM` | 브랜드별 당월매출 | `COLOR` 팔레트 ✅ |
+| `p1_weekly` | bar | `전사.weeklyTrend`(주차/매출) | — | `#1DB954` ✅ |
+| `p1_dow` | bar | `전사.dowAvg`(요일/평균매출) | — | 주말 `#a855f7` / 평일 `#1DB954` ✅ |
+| `p1_monthly` | bar | `전사.last12m`(월/목표/매출) | 목표=`monthlyTargetStyle()` + 실매출 2-dataset | 현재월 `#f59e0b` else `#1DB954`, borderRadius4 ✅ |
+| `p1_brand_monthly_trend` | line | `브랜드[*].yearlyMonthly.byYear` | 1~12월 라벨 고정, 브랜드별 작년+올해 2라인 | 작년=브랜드컬러+`88`알파+점선`[6,4]`, 올해=실선 2.8px+현재월 노란점`#fbbf24`(r7)+미래월 null ✅ |
+| `p1_store_yoy_0~8` | line ×9 | `allLocs[i].yearlyMonthly` | 매장별 작년 vs 올해 1~12월 미니차트 | 작년=`#a3a3a380` 점선`[5,3]`, 올해=`storeColors[지점명]` 실선 fill, 현재월 노란점 ✅ |
+
+- ✅ **isFuture/isCurrent 플래그**: yearlyMonthly 각 월에 `isFuture`(미래월→null로 라인 끊김), `isCurrent`(진행중월→노란 강조점) 부착. `spanGaps:true`로 결측 월 건너뜀.
+- ✅ **작년 라인 0/null 처리**: `x.매출>0 ? x.매출 : null` — 매출 0(미오픈/휴업)월은 라인에서 제외.
+- ✅ P1 외 P2~P4 브랜드 차트(L13067~): `loc_rev`/`weekly`/`monthly`/`meal`(런치디너 도넛)/`bv`(Food음료 도넛)/`delivery`(매장/배민/쿠팡 도넛)/`ticket`(객단가 line). P5(L13080~)는 v50.10에서 19→5 차트 축소 + 차트별 `animation:false`.
+- 🔗 신규시스템 매핑: 이 차트들이 [[월별 YoY·목표대비]] 시각화 핵심. fact_sales_daily에 `sales_lunch/dinner`, `beverage_sales/ratio`, `guest_lunch/dinner` 이미 적재됨(Day1~2) → React에서 재현 가능. **단 `목표매출`·`yearlyMonthly` 작년치는 BI `매출_월별` 탭 의존 → 미이주** ⚠.
+
+## 작업2. 회계 9쌍 line-level (용산 대표 clone: scriptId `1bVKief…`) ✅
+> 15파일 11,787줄. **매장마다 독립 스크립트**(공통 코드 복제본). "푸드코스트 통합 v4.5".
+
+**파일 구성** (용산 기준, 9개 동일 추정 ⚠):
+| 파일 | 줄 | 역할 |
+|---|---|---|
+| Code.js | 3,887 | 코어: SETTING/입력-N월 시트 생성·발주입력·계정과목 |
+| 발주입력팝업.js | 1,959 | 발주 입력 모달 UI |
+| 데이터 보호 패치.js | 1,065 | 시트 보호/권한 |
+| 소모품입력.js | 922 | 소모품내역 입력 |
+| 코스트시뮬레이션.js | 834 | 원가 시뮬레이터 |
+| 로스터동기화.js | 593 | `syncTeamFromRoster_` — 로스터→인건비 |
+| 운영대시보드.js / 예산대시보드.js | 464/444 | 매장 자체 대시보드 |
+| 거래처관리.js | 441 | 거래처(vendor) CRUD |
+| 정산보고서.js | 344 | `runMonthlySettlement` 월말 대조 |
+| bulk_settlement_report.js / bulk_labor_sync.js | 170/119 | **9지점 일괄 실행(용산=허브)** |
+| 토탈수식보호.js / 발주섹션_시트보호.js | 81/464 | 수식·범위 보호 |
+
+- ✅ **시트 구조** (각 회계운영 시트): `입력-N월` 탭(`📦 BOH 발주 입력`/`📦 FOH 발주 입력` 섹션, A열=계정과목, D열=토탈, 섹션당 35행) + `추적로그` 탭(12컬럼: idx0=시트명, idx3=userTeam, idx4=금액, idx8=계정과목, idx11=inputSection) + `소모품예산 전용 관리`(또는 `소모품내역`) + `SETTING`(H3=BOH ROSTER_ID, H4=FOH, U~W=사용자, BOH거래처 4~38행, FOH 40~74).
+- ✅ **계정과목 8종**: 식자재/소모품/용역/기타/프로젝트/음료자재/회식/채용 예산.
+- ✅ **`runMonthlySettlement(sheetName)`**(정산보고서.js L224): 입력시트 D열 토탈 합산(계정×팀) **vs** 추적로그 금액 합산(계정×팀) → `diff>1`이면 mismatch. + 소모품 status `완료` 여부 검증 → `{allMatch, mismatchCount, supplyComplete, supplyPending}`. 이것이 매장 회계의 **자체 정합성 검증 로직**(우리 reconcile와 동일 사상).
+- ✅ **Q8 답** [정정 Day3]: 회계 9개는 BI(1tKr70)로 push **안 함**. 용산 회계운영 시트가 **허브** — `bulk_labor_sync.js`/`bulk_settlement_report.js`가 `ORI_LABOR_BRANCHES`(9 sheetId 하드코딩)를 `openById`로 직접 열어 `setActiveSpreadsheet` 후 각 지점 함수 호출(fan-out). BI 매출 집계(`syncOpData`)와는 **완전 별개 경로** — 회계운영 시트는 발주·인건비·소모품(비용)이고, BI는 OP 시트 1.SA 매출만 pull.
+- 🔗 신규시스템: `추적로그`=`fact_account_log` 원천. `ORI_LABOR_BRANCHES` 9 sheetId = bridge OP_SHEETS와 **다른 시트**(회계운영 ≠ OP). ⚠ 현재 우리가 sync하는 건 OP쪽이지 회계운영 9시트 추적로그 직접 sync 여부 재확인 필요.
+- ⚠ ADMIN_EMAILS = 회계담당 + 매장관리자 2명 (공개본 redact).
+
+## 작업3. VOC 두 시트 관계 ✅
+- ✅ `1Ve6…` = **"(SZI)_전지점 Brand FIC"** (13.3MB, 2024-10 생성, 폴더 `1HzYty…` 내, 활발히 수정 2026-06-23). = 우리가 sync한 SZI VOC 원천. **오프라인 고객 접수 VOC/피드백**.
+- ✅ `1CbmPsm…` = **"심퍼티쿠시 리뷰 아카이브"** (2.5MB, 2026-04 생성, 19탭). = **온라인 리뷰 크롤러/자동분류** (네이버 등 외부 리뷰).
+- 🟰 **관계**: 둘은 **다른 데이터 소스**. FIC(1Ve6)=매장 접수 VOC(불만/요청), 리뷰아카이브(1CbmPsm)=외부 플랫폼 리뷰. 대시보드 P-챕터(리뷰분석 reviewNeg7 등)는 **리뷰아카이브 계열** 데이터 사용, VOC페이지는 FIC 계열. 
+- ❌ **미이주**: 리뷰 아카이브(1CbmPsm) → Supabase 미이주. reviewDaily(부정수/SOP위반수/평균별점)의 원천이 이 시트 계열일 가능성 높음 → Day4 크롤러/자동분류 로직 + reviewDaily 원천 탭 확정 필요.
+
+## 작업4. anomaly / review / thresholds 계산 위치 ✅ (Q7 답)
+- ✅ **thresholds**: `ctx.raw.thresholds = readTab('임계값_정보')`(L7588) — BI의 `임계값_정보` 탭. 브랜드별 비용 임계. `data.thresholds.find(x=>x.브랜드===s.브랜드)`(L8427)로 매장점수 계산 시 매칭.
+- ✅ **reviewNeg7**(L8179) = `reviewLast7`(직전 완료주 7일) 부정수 합. `reviewNegRate7 = reviewNeg7/reviewCount7`(L8181). `reviewWeightedScore7`=리뷰수 가중 평균별점. `reviewSop7`/`reviewHighSop7`=SOP·High위반 합. 12주 트렌드(L8185~)=주별 집계 `reviewWeeklyTrend`.
+- ✅ **anomalyCount**(L8400) = `이상치탐지(data, 지점)` 함수 결과 `anomalies.length`. `전사.anomalies`에 배열 저장.
+- ✅ **매장점수**(L8426~) = csuite 합의 v2.0 6축: 매출10/고객만족20/인건비20/식자재20/운영품질20/위생10. `costRatioScore(actual,threshold)`(L8409) piecewise(임계 80%↓=100점 … 135%↑=0점). 위생 미시작 시 5축 가중치 비례 재분배.
+
+## 작업5. CON/SEL 캐치 객수 추정 로직 + 진짜 측정값 경로 (Q9 답) ✅
+- ✅ **cust(객수) 4단 fallback**(ctx L7793): ①`일_객수` 합 → 0이면 ②`런치_객수+디너_객수` → 0이면 ③`월객수 × (당월매출/월매출)` 비례 → ④`월객수 × (경과일/월일수)`. **CON은 일별 객수 결측 → ②③④ 추정치**일 수 있음 ⚠.
+- ✅ **catchpayPct**(ctx L7903): `(캐치페이_런치+캐치페이_디너)/last28총매출`. **CON/SEL은 일별 캐치페이 0 하드코딩**(`syncOpData` L294, BI-bound 스크립트) → `catchpaySum===0`이면 `매출_월별` 시트 `캐치페이` 컬럼 직전 3개월 비율로 fallback(L7907~7913). → **CON/SEL 캐치 수치 = 월별 추정치**.
+- ✅ **Q9 답 (진짜 측정값 받는 법)**: 캐치테이블 **실측 예약/결제**는 이미 마케팅 빌더에 설계돼 있음 — `마케팅_캐치예약_상세` 시트(`source: 캐치테이블 API + 네이버 예약`, 컬럼: 예약일시/방문일시/채널/인원수/상태(확정·노쇼·취소·방문완료)/결제금액/캐치페이여부, Code.js L4705~4710) + `마케팅_매장_검색유입_KPI`의 `캐치테이블실예약`. → **캐치테이블 API를 이 마케팅 raw 시트로 적재 → 일별 캐치 객수/매출 실측 가능**. 현재 운영 대시보드는 이 마케팅 데이터를 매출 ctx에 **연결 안 함**(P12 마케팅 통합 시 연결 대상). 즉 "진짜 측정값"의 파이프는 존재하나 **운영 대시보드 매출 경로엔 미연결** = 추정 유지 중.
+
+## Day 3 발견사항 요약
+1. ✅ P1 14차트 전부 글로벌 defaults 미변경 + isFuture/isCurrent 플래그 기반 YoY 라인 — 안전룰 준수 확인.
+2. ✅ 회계 9쌍 = 매장별 독립 "푸드코스트 v4.5" 스크립트, 용산=일괄 허브. 추적로그=fact_account_log 원천, 자체 월말대조 로직 보유.
+3. ✅ Q8: 회계→BI push 없음(fan-out openById 허브 구조). Q7: thresholds=임계값_정보 탭/anomaly=이상치탐지(). Q9: 캐치 실측 파이프(마케팅_캐치예약_상세)는 설계됐으나 매출 경로 미연결.
+4. ✅ VOC = FIC(오프라인 접수) + 리뷰아카이브(온라인 크롤러) 2계열, 후자 미이주.
+
+## Day 3 질문 (❓)
+- ❓ Q10: 회계운영 9시트(`ORI_LABOR_BRANCHES`)의 `추적로그`를 Supabase로 직접 sync 중인가, 아니면 OP 시트 경유만인가? (fact_account_log 완전성 영향)
+- ❓ Q11: reviewDaily(부정수/SOP위반/평균별점) 원천 탭 = 리뷰아카이브(1CbmPsm) 계열 맞나? BI에 sync돼 들어오나?
+- ❓ Q12: 캐치테이블 API 키/연동은 현재 살아있나(마케팅_캐치예약_상세 실제 적재 중인가), 아니면 설계만인가?
+
+## 다음 (Day 4)
+- 리뷰 시스템: 1CbmPsm 크롤러/자동분류 Apps Script clone + reviewDaily 원천 확정 (Q11)
+- 회계운영 시트 추적로그 → Supabase sync 경로 확인 (Q10)
+- P6~P11 챕터 ctx 빌더 line-level (HR/위생/예약율)
