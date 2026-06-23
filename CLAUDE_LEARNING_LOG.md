@@ -442,3 +442,89 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - P9 전년대비 / P10 할인·서비스 / P6 음료 챕터 line-level (운영 사이드바 중위 그룹)
 - P14 인사(HR) / P19 위생(HACCP) / P15 메뉴성과 — 데이터 source + 미이주 여부
 - Penta O.S(p8 실콘텐츠) 정체 추적 — 무엇을 측정하는 챕터인지
+
+---
+
+# 불변량 (INVARIANTS) — 신규 시스템 설계 시 반드시 보존 ⚠ 누적 섹션
+> 운영실장 운영 철학/외부 제약에서 나온 "코드로 박으면 안 되는" 규칙. Day별로 누적.
+- **[INV-1] 매장점수 6축 비중은 운영실장 운영 철학** (조정 가능, Day5 답3): 현재 매출10/고객만족20/인건비20/식자재20/운영품질20/위생10. 철학 = "매장이 **자기 통제 가능한 영역(90%)** 우선 평가, **매출(10%)은 마케팅 영향 크니 약하게**". 운영실장이 매출 비중 더 줄일지 검토 중. → **신규 P13 재현 시 가중치를 코드 상수로 박지 말 것.** `임계값_정보` 같은 **설정 테이블 또는 admin 페이지**에서 운영실장이 조정 가능하게 설계. 화면에 "통제가능 90% / 외부영향 10%" 운영철학 라벨도 표시.
+- **[INV-2] CON/SEL 캐치 객수·매출은 영구 추정** (Day4~5 Q12): 캐치테이블 측이 API 미제공(외부 제약) → 월별 비율 fallback이 유일. 신규 시스템도 실측 불가, 추정 유지. 연동 재시도 금지.
+- **[INV-3] 비용은 회계담당 single-source** (Day5 Q15): 회계담당이 9 회계시트 입력 → ImportRange로 OP 시트 비용 컬럼 자동 취득. 매니저는 매출만 입력. 신규 시스템도 **비용 입력 주체 = 회계담당 1곳**, 매장 매니저 비용 재입력 만들지 말 것(이중입력 방지).
+
+---
+
+# Day 5 보강 (2026-06-24) — review_project(리뷰크롤러) 폴더 line-level + 운영실장 답변 4건
+
+> 운영실장 답변: ①4룰 +5%p≈-5%p 동등 인지(정정 불요) ②임계값 SZI 27/23·CON 28/24 확정 ③6축 가중치=운영철학(→[INV-1]) ④review_project=PC 폴더(JSON 다수).
+> **위치 확정**: `C:\Users\ilms4\OneDrive\바탕 화면\review_project` (대시보드 프로젝트 옆). **24,644줄 Python** + Streamlit + webapp + SOP매뉴얼. PDF "리뷰크롤러" 노드 = 이 폴더.
+
+## 작업4. review_project 폴더 구조 ✅
+### 4-1. 일일 실행 흐름 (`daily_run.py` 667줄)
+- ✅ **트리거**: Windows 작업 스케줄러 → `run_daily.bat` → `daily_run.py`. lock 파일(`data/daily_run.lock`, 6h 초과 자동정리). ⚠ 실행 시각은 **작업 스케줄러 GUI에만** 존재(코드 밖, 주석은 "매일 06:00").
+- ✅ **순서**(daily_run.py L97~644): ①네이버플레이스 크롤(매장 shuffle + **60초 sleep** 봇회피) → ②캐치테이블 크롤 → ③네이버블로그(키 있을 때) → ④구글(키 있을 때, **max 5건 하드캡**) → CSV dedup 저장 → **LLM 분류**(본문 3채널, 미분류만, 건당 `sleep(0.3)`) → SOP 룰매칭(부정만, LLM X) → 오프라인 아카이브(FIC) 수집·매칭 → 설문 수집·매칭 → 매뉴얼매칭 v2 → **구글시트 동기화 14블록**(`allow_browser=False`).
+- ⚠ 채널 실패는 예외 삼키고 0건 처리 후 계속(부분 실패 허용).
+
+### 4-2. 채널별 크롤 (raw → data/reviews_*.csv)
+| 채널 | 방식 | 인증 | 출력 |
+|---|---|---|---|
+| catchtable | ✅ Playwright headless + **매니저페이지 JWT 캡처** → `biz-api/reviews` 직접 fetch 페이지네이션. 세션 만료 시 `.env` 계정으로 1회 자동 재로그인 | `credentials/catchtable_session.json`(storage_state) | reviews_catchtable.csv |
+| naver_place | ✅ Playwright **stealth** + `getVisitorReviews` GraphQL 캡처 → 이후 cursor는 `requests.post` 직접 | 없음(공개) | reviews_naver_place.csv |
+| naver_blog | ⚠ 검색 API(본문 없음, 분류 제외) | `.env` NAVER_CLIENT_ID/SECRET | reviews_naver_blog.csv |
+| google | ✅ Google Places REST(`details`/v1), **5건 하드캡** | `.env` GOOGLE_API_KEY | reviews_google.csv |
+- ✅ 공통 `dataclass Review`(platform/brand/branch/author/content/full_content/date/rating/url/raw). dedup=MD5(`platform|branch|author|date|content[:80]`).
+
+### 4-3. Claude 분류 (`classifier.py` 308줄)
+- ✅ 모델 `claude-sonnet-4-6`(L21), 프롬프트 **v3**(L22, 반전구조/제안성/타매장 오탐방지). **건당 `messages.create`** (max_tokens 1500), JSON 실패 1회 재시도. **Batch API 미사용**(설문 코멘트만 Haiku 4.5 Batch).
+- ✅ 8카테고리(음식/음료/서비스/환경/가격/접근성/예약/특별한날) × {sentiment 긍정·부정·중립·언급없음 + severity strong/medium/weak}. overall_score 1~5 / confidence 0~1 / **needs_review=confidence<0.5**. 부정 키구절 있으면 강제 '부정' 룰보정.
+- ✅ 입출력: reviews_*.csv → `load_unclassified_reviews`(분류된 review_key 제외) → **reviews_classified.csv(41컬럼)**. = 1CbmPsm `통합_분류` 탭의 원본.
+- ✅ **negative_severity.py = 순수 룰기반**(LLM X, STRONG>MEDIUM>WEAK 한국어 F&B 사전 + 타매장 언급 제외). `manual_matcher`에서만 사용. ⚠ `sentiment_analyzer.py`는 미사용(legacy).
+
+### 4-4. 시트 write (`sheets_sync.py` 1317줄)
+- ✅ **gspread** + OAuth(`credentials/oauth_token.json`, refresh, 스케줄러 `allow_browser=False`). 시트ID = **`.env` `GOOGLE_SHEETS_ID`(=1CbmPsm)** 주입(하드코딩 아님). write = 탭 `clear()` 후 `update(A1)` 전체 덮어쓰기 + 헤더 영→한.
+- ✅ **고정 13탭 + write 함수 (Q18 대부분 해소)**:
+| 탭 | 함수 | 소스 |
+|---|---|---|
+| logs | sync_logs | crawl_logs.csv |
+| **통합_분류** | sync_classified_unified | reviews_classified.csv |
+| 수기입력_원본 | sync_manual | manual CSV |
+| **부정리뷰_SOP매핑** | sync_sop_violations | sop_violations.csv |
+| SOP위반_빈도통계 | sync_sop_frequency | sop_aggregate |
+| 매뉴얼개선제안 | sync_sop_suggestions | sop_aggregate |
+| 부정리뷰_매뉴얼매핑_v2 | sync_manual_match | manual_match |
+| **V2_항목별빈도** | sync_manual_v2_frequency | manual_match_aggregate |
+| **V2_액션보드** | sync_manual_v2_action_board | manual_match_aggregate |
+| 설문_원본 | sync_survey_raw | survey_storage |
+| 설문_매뉴얼매핑 | sync_survey_match | survey_match |
+| 아카이브_원본 | sync_archive_raw | offline_archive |
+| 아카이브_매뉴얼매핑 | sync_archive_match | archive_match |
+- ✅ + **브랜드×채널 raw 탭**(동적 생성, `{브랜드}_{채널KR}`, 데이터 있는 조합만). ⚠ "19탭" = 13 고정 + 동적 raw 조합 합산 근사 — **정식 단일 목록은 코드에 없음**(데이터 의존). 정확 enumeration은 라이브 시트/daily_run.log 필요.
+- ✅ **[Issue #1 재구성]** 크롤러는 **bound Apps Script가 아니라 이 PC Python(review_project)** — 본체 코드 **전량 확보됨**. Issue #1의 "bound scriptId 필요" 전제는 무효(크롤러 한정). 남은 ❓는 라이브 19탭 정확 enumeration뿐. → Issue #1 갱신 대상.
+
+### 4-5. SOP 매칭 + JSON 역할
+- ✅ **SOP 17룰**(`sop_rules.py`): SOP 10개(A1 컴플레인/B3 위생HACCP/C1 발주/C4 식품보관/D1~D3 인사·교육·평가/E1 식품사고/E2 시설사고/F1 일일보고) + 매뉴얼 7개(FOH 예약·환경·VIP / BOH 검수·온도). 부정 카테고리(음식/음료/서비스/환경/예약/특별한날)만 매핑(가격·접근성 SOP 없음).
+- ✅ **2개 구현 공존**: `sop_matcher`(규칙기반, high≥score 3.0) + `sop_analyzer`(claude-sonnet-4-6). 출력 `analyzer_version` 컬럼으로 구분.
+- ✅ **JSON 역할**: `credentials/*.json`(OAuth client/token, catchtable 세션 — 값 미출력) / `data/sheet_inventory.json`=**운영 대시보드 인벤토리(1CbmPsm 아님! 혼동주의)** / `new_sop_db_inventory.json`=매뉴얼 시트(1apm9eR9) 구조 / `survey_inventory.json`=3브랜드 구글폼 / `ai_team/schedules/schedule.json`=8 AI직원 cron / `survey_batches/*.json`=Anthropic Batch 메타.
+- ✅ **설문 파이프**: 3개 구글폼 응답시트(콘피에르/셀렉션/심퍼티쿠시 별도 ID) → `survey_collector`(PII 제거, 매장 canonical, 척도→1~5) → `설문_원본`/`설문_매뉴얼매핑` 탭. 자유코멘트만 Haiku 4.5 Batch 분류(별도 CSV). ⚠ 설문은 `통합_분류`로 **합쳐지지 않음**(별도 설문 탭 경로).
+
+### 4-6. 인접 발견 (이 폴더에 동거, Day6+ 추적 대상)
+- ⚠ `manual/` = **SOP/매뉴얼 본문**(manual_boh/foh_body v1·v2, sop_governance/taxonomy/combined) — 메모리의 별도 SOP/매뉴얼 시스템과 연결.
+- ⚠ `ai_team/` = **8 AI직원 시스템**(employees/sop_director 522줄, prompts/, schedule.json cron) — 별도 인벤토리 필요.
+- ⚠ `webapp/` = Apps Script(Code.gs+Index.html, clasp) = "운영실 리뷰 인사이트" READER 웹앱(1CbmPsm 읽어 표시).
+- ⚠ `dashboard.py`(2179줄) = Streamlit 로컬 대시보드.
+
+## Day 5 보강 발견 요약
+1. ✅ review_project 전모: 일일 배치(작업스케줄러)→4채널 크롤→sonnet-4-6 v3 건당 분류→gspread로 1CbmPsm 13고정탭+동적raw write.
+2. ✅ 고정 13탭 이름·write함수 확보(Q18 대부분 해소). 크롤러=PC Python 확정(Issue #1 전제 무효화).
+3. ✅ SOP 17룰(규칙+Claude 2구현), 설문 별도 파이프(구글폼→설문탭, 통합_분류 미합류).
+4. ✅ 인접 시스템 4개(manual SOP본문/ai_team 8직원/webapp 리더/Streamlit) 동거 발견.
+5. ✅ [INV-1] 6축 가중치=운영철학(코드상수 금지) 불변량 등재.
+
+## Day 5 보강 질문 (❓)
+- ❓ Q19: ai_team 8 AI직원(sop_director 등)은 운영 중인가, 실험인가? schedule.json cron이 실제 도는가?
+- ❓ Q20: review_project를 신규 시스템(Supabase/Vercel)으로 **유지(현행 PC 배치 그대로) vs 재구현(서버리스 크롤+분류)** — 운영실장 결정 필요. 크롤이 DOM selector 의존이라 재구현 시 동일 취약성.
+- ❓ Q21(Issue #1 갱신): 라이브 19탭 정확 목록 — daily_run.log 또는 시트 직접 조회로 확보 가능(bound scriptId 불필요).
+
+## 다음 (Day 6)
+- P9 전년대비 / P10 할인·서비스 / P6 음료 챕터 line-level
+- ai_team 8 AI직원 시스템 인벤토리 (Q19) + manual SOP본문 구조
+- Penta O.S(p8 실콘텐츠) 정체 추적
