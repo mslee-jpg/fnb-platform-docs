@@ -556,6 +556,7 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
   - **Tier 3 실매출 미포함**(이중계산 방지): 선결제 사용(prepayment_redemption)·예약금 환불(reservation_cancel).
   - → PENTA OS는 이 3-tier를 화면에서 명시적으로 분리. 상품권=gift_certificate 보존(Day8 fix 유지, Q31=옵션D).
 - **[INV-15] 라이브 카논은 함수별로 분리** (Day10): **sync 브리지(syncSalesDailyAll/syncDiscountAll/syncAccountLogsAll) 카논 = `apps-script-bridge/`**(BI→fact). **syncOpData(OP→BI) 카논 = 대시보드 프로젝트(`1UlH7…`, 배포소스 `live_src/be_sync_op.js`)**. ⚠ `live_src/bridge_*`는 스테일 사본(혼동 주의). PENTA OS 빌드 시 **카논 단일화 + 동기화 자동화 필수**(수동 복제가 STALE 버그 2건의 근원).
+- **[INV-16] fact_sales_daily 채널 분해 컬럼(catch_sales/reservation_cancel)은 신뢰 전 OP 원천 대조 필수** (Day11). syncOpData가 OP 1.SA → BI를 **위치(index) 기반**으로 매핑해 컬럼 오매핑 2건 발생: ①예약취소금 하드코딩 0 ②캐치페이=객수/객단가 오매핑(catch_sales ≈ avg_ticket). **total_sales_input(전산_합계)은 권위값이라 무관, 채널 분해(catch/reservation)만 오염**. → PENTA OS 엑셀 파서는 **헤더명 기반 매핑 + 컬럼별 sanity 검증**(예: catch_sales는 객단가와 다른 자릿수)으로 위치매핑 폐기.
 
 ---
 
@@ -965,3 +966,58 @@ flowchart TB
 - 운영실장 재sync(syncOpData→syncSalesDailyAll) 후 reservation_cancel_amount 적재 검증
 - /flex P1 나머지 11섹션 (fact_sales_monthly·예약 테이블 추가 후)
 - /cost /scm /voc /menu 축 페이지 + SCM 3계층 워크플로우 UI(fact_purchase_order)
+
+---
+
+# Day 11 (2026-06-24) — 재sync 검증(실패·미배포 발견) + 캐치페이 오매핑 발견 + /scm 스캐폴드
+
+> 운영실장 재sync 보고: syncOpData 성공(새 1541행, errors 0) + syncSalesDailyAll 성공(fact_sales 811행). **그러나 reservation_cancel 검증 실패** → 추가 진단 결과 **fix 미배포 + 2번째 버그 발견**.
+
+## 작업1·2. 예약취소금 fix 검증 → ❌ 실패 + 근본 진단 ✅
+- ❌ **reservation_cancel_amount = 0 (829행 전부)** 재sync 후에도 그대로. 광화문 6/8·6/16 모두 0.
+- ✅ **중간단계(BI) 직접 확인**: BI 통합시트(`1tKr70`, [BI] 통합 데이터 레이어 v1) `매출_일별` 헤더에 `예약취소금`(col16) 존재하나 **데이터 = 0**(1월 전 행 0 확인). → fact_sales 0은 **하류 정상**, BI 자체가 0.
+- 🔴 **근본원인 = fix 미배포**: 내 `be_sync_op.js` 수정(`0`→`Number(mp.rc)`)은 **live_src 디스크에만 있고 클라우드(1UlH7) 미배포**. 운영실장 재sync는 **기존 클라우드 코드(하드코딩 0 그대로)로 실행**됨. clasp push 누락. → **수정은 정확, 배포가 안 됨**.
+- ➡ **필요 조치(명확화)**: ① `live_src/`에서 **`clasp push`로 be_sync_op.js를 1UlH7에 배포** ② 그 후 `syncOpData` → `syncSalesDailyAll` 재실행 ③ 재검증. (지난 안내에 clasp push 단계가 불명확했음 — 정정.)
+
+## 🆕 작업1 부수 발견 — 캐치페이 오매핑 (2번째 시스템 버그) 🔴
+- 🐞 **catch_sales ≈ avg_ticket** (실측 2026-06-23 SZI 전매장): EASTPOLE 30,726≈객단가31,048 / 광화문 41,413≈41,642 / 성수 39,257≈38,513 / 서울역 37,244≈37,160 / 여의도 42,508 / 용산 41,546≈39,524. → **catch_sales 컬럼이 실제 캐치페이가 아니라 객단가 값**(하루 캐치페이가 ₩4만일 수 없음 = 1객 단가).
+- ✅ **원인 위치**: BI 매출_일별 캐치페이_런치/디너 컬럼(17/18)에 객수/객단가가 들어감(스니펫 용산 01-01: 캐치페이=96/52661.46 = 일객수/객단가). syncOpData `c={ck:r[32], cp:r[33]}`(SZI)가 **OP 1.SA의 객수/객단가 컬럼을 가리키는 듯** — r[32]/r[33] 인덱스가 캐치페이가 아닐 가능성.
+- ⚠ **영향 한정**: `total_sales_input`(전산_합계 col13)은 권위 매출이라 **무관**. 오염은 **catch_sales 분해 컬럼만**(채널 mix·캐치 분석에만 영향, 총매출 무관).
+- ➡ **Q34**: OP 1.SA에서 캐치페이_런치/디너 실제 컬럼 위치(index) 확인 필요(Day12 OP 1.SA 컬럼 감사). → [INV-16].
+
+## 작업5. /scm 페이지 스캐폴드 ✅
+- ✅ `apps/web-admin/src/app/(authed)/scm/page.tsx` 생성(server, fact_purchase_order+dim_store 조회) + layout 네비 "SCM 발주" 추가.
+- ✅ 구조: KPI(총발주액/미확인건수/매장수) + 3계층 워크플로우 설명([INV-5]) + 상태별 칸반(draft/submitted/team_confirmed/ops_confirmed/rejected) + 발주 리스트 표(매장/팀/거래처/품목/금액/상태/1·2·3차 확인자). 빈 테이블 Empty 처리(추측 데이터 0).
+- ✅ @fnb/ui apple 토큰, `tsc --noEmit` EXIT 0.
+- ⏳ **상태 전이(쓰기) 미구현**: draft→submitted→team_confirmed→ops_confirmed 액션 + 매장 scope RLS = Phase1 auth + dim_store_manager 매핑 후.
+
+## 작업3·4. /flex 11섹션 · /cost — 의도적 보류 (정직)
+- ⏸ **보류 사유**: ① 매출 파이프라인 정합성 2건 미해결(예약취소금 미배포 + 캐치페이 오매핑) → 이 데이터 위에 섹션 빌드 시 **틀린 화면 1:1 재현** 위험. ② /flex YoY·예약/워크인·임계, /cost P5 비용은 **fact_sales_monthly·fact_reservation_weekly·dim_cost_threshold 미생성**(BI 매출_월별 미이주) → 빈 페이지. 
+- ➡ **선결 조건**: (a) 운영실장 clasp push+재sync로 예약취소금 적재 (b) 캐치페이 Q34 해결 (c) 월별/예약/임계 테이블 migration + bridge sync. 그 후 빌드가 정확. **bad data 위에 안 쌓음**([INV-16] 정신).
+
+## 작업6. Phase 1 진척 트래킹 ✅
+| 축 | 페이지 | 상태 | 완성도 |
+|---|---|---|---|
+| 유연운영 | /flex | P1 3/14 섹션(KPI·헬스·무결성), tsc통과 | ~20% |
+| 원가컨트롤 | /cost | 미착수(월별 테이블 선결) | 0% |
+| SCM | /scm | 스캐폴드(읽기), 쓰기 워크플로우 미구현 | ~30% |
+| VOC&CS | /voc | 기존 admin 페이지 존재(fact_voc) | (재평가 필요) |
+| 전략적메뉴 | /menu | 미착수 | 0% |
+- **데이터 선결 과제**: 매출 파이프 fix 2건(예약취소금 배포+캐치페이) / fact_sales_monthly·예약·임계 테이블 / fact_purchase_order 입력 경로.
+- **다음 우선순위(자동 결정)**: ①매출 파이프 정합(예약취소금 배포검증 + 캐치페이 Q34) — **최우선**(모든 매출 화면 기반) → ②fact_sales_monthly migration+sync(/cost·/flex YoY 차단해제) → ③/flex 11섹션.
+
+## Day 11 발견 요약
+1. ❌ 예약취소금 fix **미배포**(live_src만, 클라우드 미push) → 재sync해도 0. clasp push 후 재실행 필요.
+2. 🐞 **캐치페이 오매핑 발견**: catch_sales=객단가값(Q34, OP 1.SA 컬럼 감사 필요). total은 무관.
+3. ✅ /scm 스캐폴드(읽기) tsc통과. 쓰기 워크플로우 Phase1 auth 후.
+4. ⏸ /flex-11·/cost 보류(매출 파이프 정합 + 테이블 선결) — bad data 위 미빌드.
+5. [INV-16] 채널분해 컬럼 OP 대조 필수 + 위치매핑 폐기(헤더명 매핑).
+
+## Day 11 질문 (❓)
+- ❓ **Q34**(기술 감사, 클로드 코드 책임): OP 1.SA의 캐치페이_런치/디너 실제 컬럼 인덱스 = ? (현 r[32]/r[33]이 객수/객단가 가리킴). → Day12 OP 1.SA 헤더 감사로 해결.
+- ❓ **Q35**(운영 정책): 캐치페이 일별 분해가 PENTA OS에 필요한가, 아니면 월별 비율([INV-2] 캐치 추정)로 충분한가? (CON/SEL는 어차피 추정.)
+
+## 다음 (Day 12)
+- 운영실장 clasp push(be_sync_op.js→1UlH7) + syncOpData→syncSalesDailyAll 재실행 → 예약취소금 적재 재검증
+- Q34: OP 1.SA 컬럼 감사 → 캐치페이 인덱스 fix
+- fact_sales_monthly migration + bridge sync(BI 매출_월별→fact) → /cost·/flex YoY 차단해제
