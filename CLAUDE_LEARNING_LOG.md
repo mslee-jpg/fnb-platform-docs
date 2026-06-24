@@ -546,7 +546,10 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - **[INV-8] SOP/매뉴얼 SSOT = 구글시트 `1apm9eR9…`** (Day7). MD(manual/)는 백업·사람가독용. RACI 단일 Accountable = 운영실장(전 SOP 동일). SOP 25 카탈로그(A1~F3, governance) + 강제강도 3분류(🔴🟡🟢, taxonomy)는 별개 축.
 - **[INV-9] ai_team Phase2 진입 게이트 = PENTA OS 안정화 + 본사 컨펌**(Service Account 통과). PENTA OS 설계에 **AI 에이전트 슬롯을 미리 비워둘 것**. (spec_v1.md: Phase1=단계A 공개시트 reader+Apps Script(현재 실험) / **Phase2=단계B Service Account+Streamlit+Cloud Scheduler, "본사 컨펌 대기 ⚠"** / Phase3=데이터누적후 컴플라이언스·경영비서 / Phase4=마케팅·디자인 인수 2027~28. 게이트 조건 = 본사가 GCP Service Account에 비공개 시트·자동쓰기 권한 부여 = workspace_permissions 단계B.)
 - **[INV-10] PENTA OS = 3브랜드 9매장 동일 운영 수준** (Q25 옵션A, Day8). SZI 전용 도구(HACCP 7탭 / 메뉴 4분면)를 CON/SEL 3매장에도 신설. **운영 일관성이 PENTA OS 핵심 가치**. → 빌드 범위 확장(작업5).
-- **[INV-11] 할인 = 운영 데이터 기반 분류** (Q26, Day8). 라이브 실측 = **9 카테고리**(promo/influencer/prepayment_redemption/staff/reservation_cancel/voc_compensation/ceo_request/operation_error/gift_certificate). admin이 만든 추가 9종(vip/noshow/senior/coupon/corkage/kids/xiaohongshu/private_event/partnership) = **라이브 0행 → 보류**. ⚠ 운영실장 제시 "정상6"의 noshow는 라이브 0행, 대신 voc_compensation(클레임응대) 226행 실재 → Q28 검증.
+- **[INV-11] 할인 = 운영 데이터 기반 분류** (Q26, Day8). 라이브 실측 = **9 카테고리**(promo/influencer/prepayment_redemption/staff/reservation_cancel/voc_compensation/ceo_request/operation_error/gift_certificate). admin이 만든 추가 9종(vip/noshow/senior/coupon/corkage/kids/xiaohongshu/private_event/partnership) = **라이브 0행 → 보류**. ⚠ Day9 정정: gift_certificate(상품권)는 **매출 가능성**(Q31 검토), noshow는 라이브 0(매출 처리). 최종 분류는 [INV-13] 검증 후 확정.
+- **[INV-10 갱신]** (Day9 Q30): 9매장 동일 운영 수준 = SZI **전체 메뉴** 4분면 / CON·SEL **에딩(애피타이저)+추가 메뉴만** 4분면(**코스 본체는 4분면 불가** — 판매량 변별 부족). 위생(HACCP)은 9매장 동일 7탭.
+- **[INV-12] PENTA OS Phase 1~3 = 운영실 5축 전용. Phase 4(Phase3 안정화 후 6~12개월) = 마케팅 확장** (운영실장 철학 Day9). 마케팅 13시트는 그때 PENTA OS에 흡수. "100% 완성은 환상" — 동시 빌드 금지, 5축 완성→안정화→마케팅 순차.
+- **[INV-13] OP 시트 raw 분류 = 매출 vs 할인 명확 구분** (Day9, 도메인 정정). **매출 행위(gross_revenue로): 상품권 받음/사용·예약취소금(noshow 보관)** / **매출 차감(fact_discount로): 순수 할인만**. → 클로드 코드가 OP raw 카테고리 처리 시 **일반 BI 패턴 가정 금지, 운영실장 검증 필수**(한국 F&B 도메인 특화). Day8 gift_certificate 신설이 이 룰의 위반 사례 — Q31로 재검토.
 
 ---
 
@@ -835,3 +838,64 @@ flowchart TB
 - P2/P3/P4/P21 잔여 챕터 line-level 마무리 (17/17 완성)
 - PENTA OS Phase 1 스키마·RLS 초안 (5축 메뉴 + SCM 3계층 워크플로우 + 할인 9분류 + 엑셀 업로드 파서)
 - 재sync 후 할인 분포 재검증
+
+---
+
+# Day 9 (2026-06-24) — 할인 매출/할인 포렌식(상품권·예약취소금) + P2~P4/P21(17/17 완성) + Phase 1 스키마 초안 + STALE 배포본 발견
+
+## 작업1. gift_certificate(상품권) 6행 포렌식 ✅ — 매출/할인 판정 대기(Q31)
+- ✅ **6행 전부 CON 서울역**(CON_SEOULSTATION), 원천 `1xNLQSLif3FjhW5FFZAdK3qEVxW27IZ7bYjfwc9Af5Wc / 2.할인 / 행 6·7·24·28·88·89`. (운영실장 가설 "SEL 잠실 롯데상품권"과 **매장 다름**.)
+| 날짜 | 금액 | memo |
+|---|---|---|
+| 2026-01-03 | 300,000 | C3 - 상품권 30만원 사용 |
+| 2026-01-03 | 200,000 | A9 - 상품권 20만원 사용 |
+| 2026-01-10 | 200,000 | 런치 A9 - 상품권 20만원 사용 |
+| 2026-01-14 | 200,000 | 디너 A7 - 상품권 회수 |
+| 2026-03-26 | 200,000 | 디너 B1 상품권 할인 |
+| 2026-03-28 | 100,000 | 런치 C3 상품권 할인 |
+- ⚠ **memo 혼재**: "상품권 사용"(3건)·"상품권 회수"(1건) = 결제수단/매출인식 성격 / "상품권 할인"(2건) = 할인 성격. → **[INV-13] 매출 vs 할인 구분 필요**.
+- 🔴 **판정 미실시(추측 금지)**: mig286 롤백/유지 = 운영 정책 결정. **Q31로 시나리오 제시, 운영실장 결정 후 적용**. 현재는 gift_certificate 유지(보류 플래그).
+  - **옵션 A**(상품권 사용/회수 4건 = 매출인식): fact_discount에서 제거 → fact_sales로. bridge '상품권'→gift_certificate 매핑 제거, mig286 부분 롤백.
+  - **옵션 B**(전부 할인): 현행 유지.
+  - **옵션 C**(혼합): "사용/회수"=매출 제거, "할인"=discount 유지(별도 카테고리).
+  - 💡 클로드 코드 권고([INV-13] 기반): "상품권 사용/회수"는 선결제(prepayment)처럼 **이미 발행 시 매출 인식분의 결제수단** → 매출. "상품권 할인"만 순수 할인. → **옵션 C 유력**(단 운영실장 확정 필요).
+
+## 작업2. 예약취소금(noshow) 분류 정확화 ✅ + 🔴 STALE 배포본 발견
+- ✅ **fact_discount에 noshow = 0행** — 예약취소금/noshow가 **할인으로 오분류 안 됨**([INV-13] 부합). admin noshow 카테고리는 라이브 미사용.
+- ✅ **예약취소금 → fact_sales_daily.`reservation_cancel_amount` 컬럼**(매출 측). 단 **현재 0행 적재**(829행 중 0) — ⚠ 예약취소금 미포착(BI 컬럼 비었거나 col명 불일치). beverage_sales는 811/829 적재됨 → **7컬럼 자체는 라이브 반영, reservation_cancel만 0**.
+- 🔴 **STALE 배포본 발견(중대)**: `live_src/bridge_a_sync_sales.js`는 **9컬럼만**(Day-2 7컬럼 누락) = **STALE 로컬 사본, 배포본 아님**. 라이브는 beverage/lunch 적재(811행)로 7컬럼 보유 확인 → **실제 sync 배포 소스 = `apps-script-bridge/`**(Day-2에 7컬럼 반영된 곳). → **[정정 Day8]**: Day8 "live_src가 카논 라이브"는 부정확. **live_src = 스테일**(렌더용 dashboard clone일 뿐 sync 배포 아님). **Day8 discount fix가 `apps-script-bridge/bridge_c…gs`에도 적용된 것이 정답**(라이브 매칭). live_src 편집은 무해하나 비배포.
+- ➡ **재sync는 apps-script-bridge 배포 프로젝트에서** 실행. (운영실장: 어느 Apps Script 프로젝트가 syncDiscountAll 보유하는지 확인 후 push.)
+
+## 작업3. P2/P3/P4 브랜드별 챕터 ✅ — 1:1 재현 불필요
+- ✅ `브랜드페이지(brandName, pageId)` 함수(Code.js L12175)로 3챕터 렌더. **P1 calcKPI 재사용 + `서브브랜드` 필터만**(L8366~). 차트 7종(loc_rev/weekly/monthly/meal/bv/delivery/ticket) 동일 패턴(ge L13067~). SZI만 배달차트, CON/SEL은 캐치페이.
+- ✅ **PENTA OS 판정 = 필터 기반 충분**(별도 컴포넌트 불필요). P1 컴포넌트에 브랜드 필터.
+
+## 작업4. P21 상세 매출 ✅ — 17/17 line-level 완성
+- ✅ 렌더 `gf L1500~1899`(`id="p21"`). **SZI 6매장 시간대 분석** 4섹션: 시간×요일 Heatmap / 4시간대 버킷(아침·런치·비피크·디너) / 메뉴 시간대 Mix(런치vs디너 Top10) / 적정인력 권장. source = SZI 데이터허브 `매출_시간대별`+`매출_메뉴_시간대_월별`.
+- ⚠ **예약취소금/상품권 별도 표시 없음** — P21 `r`(매출) 필드는 일일 집계값만, 매출항목 분해 라인 0. CON/SEL 미구현(SZI만).
+- ✅ **운영 17챕터 line-level 100% 완료**: P1·P2·P3·P4·P5·P6·P7·P8·P9·P10·P11·P13·P14·P15·P18·P19·P21. (P12·P16·P17·P20은 사이드바 비노출/마케팅·결산버튼 — 운영 17 외.)
+
+## 작업5. PENTA OS Phase 1 스키마 초안 ✅ (클로드 코드 기술 설계)
+- **5축 메뉴 + 라우팅**: `/` 운영전략대시보드(통합) → `/flex`(유연운영) `/cost`(원가컨트롤) `/scm` `/voc` `/menu`. 각 축 하위 = 14모듈 실행단위(흡수). 진입=5축, 하위 7축 확장 가능([INV-4]).
+- **fact_discount 정상 카테고리**(작업1·2 반영, Q31 확정 후):
+  - 매출 차감(할인): `promo`·`influencer`·`staff`·`ceo_request`·`reservation_cancel`(예약금차감)·`prepayment_redemption`·`voc_compensation`·`operation_error`.
+  - 매출 인식(fact_sales로 이동 후보): `gift_certificate`(상품권 사용/회수)·예약취소금(noshow) — Q31 확정 시.
+- **SCM 3계층 워크플로우**(RLS + status): `fact_purchase_order(status: draft|submitted|team_confirmed|ops_confirmed)`. RLS — 1차(현장셰프·매니저)=draft/submit, 2차(BOH/FOH팀장)=team_confirm, 3차(운영실장)=ops_confirm. 매장 scope = store_id 기반 RLS.
+- **권한 분리**: 매장매니저(자기매장 입력) / 회계담당(비용 single-source, [INV-3]) / HR담당 / 운영실장(전축 검증·통합). PENTA OS에 AI에이전트 슬롯 예약([INV-9]).
+- **엑셀 업로드 파서**([INV-6]): POS 엑셀 → 업로드 → 서버 파싱(컬럼 매핑 dim) → fact_sales_daily. 매출 검증(전산_합계=채널합) + 멱등(source_ref=파일hash/행).
+
+## Day 9 발견 요약
+1. ⚠ gift_certificate 6행=CON 서울역 상품권(사용/회수/할인 혼재) — 매출/할인 Q31 결정 대기(추측 금지, 미롤백).
+2. ✅ 예약취소금→fact_sales(현재 0적재 ⚠), fact_discount noshow=0(오분류 없음).
+3. 🔴 **live_src=STALE**(sync 배포 아님), 라이브 sync=apps-script-bridge — Day8 fix 정상 적용처 확인. [정정 Day8].
+4. ✅ P2~P4=필터(별도구현 불필요), P21=SZI 시간대분석 → **운영 17/17 line-level 완성. Phase 0 종료.**
+5. ✅ Phase 1 스키마 초안(5축/할인분류/SCM 3계층/엑셀파서).
+
+## Day 9 질문 (❓ 운영 정책만)
+- ❓ **Q31** (긴급): 상품권 6행(CON 서울역, 사용4/할인2) — 옵션 A(매출 제거)/B(할인 유지)/C(혼합)? 클로드 권고=C. raw 보고 판단.
+- ❓ Q32: 예약취소금이 fact_sales에 0 적재 — 1.SA '예약취소금' 컬럼이 실제 비었나, 아니면 매출 전산_합계에 이미 포함되어 별도 불요인가?
+
+## 다음 (Phase 1 본격 진입)
+- Q31 확정 → 할인 분류 최종 + mig286 조정 + 재sync
+- PENTA OS Phase 1 스키마 확정 + 마이그레이션(fact_purchase_order 등) + 5축 앱 라우팅 스캐폴드
+- 재sync 후 할인/매출 분포 재검증
