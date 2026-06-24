@@ -538,8 +538,11 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 ---
 
 # 불변량 추가
-- **[INV-4] PENTA OS 5축 IA는 운영실장 확정 모델** (유연운영/원가컨트롤/SCM/VOC&CS/전략적메뉴개발). ⚠ 단 라이브 운영 대시보드 p8의 "Penta O.S"는 **7축**(Easy-Open·퀄리티컨트롤 별도)으로 이미 박혀 있음 → PENTA OS 빌드 시 **5축으로 통일하되 7축 정의를 5축에 흡수**하는 결정 필요(Easy-Open→유연운영, 퀄리티→VOC&CS/위생). 코드 p8 7축을 그대로 답습 금지.
-- **[INV-5] SCM 3계층 권한(현장셰프·매니저 / BOH·FOH팀장 / 운영실장)은 코드에 없음** — 현재 회계 Apps Script는 2계층(ADMIN 2명 vs 팀별 사용자 BOH/FOH)만 구현. 3계층은 구글시트 보호·Workspace 공유 설정에만 존재(코드 밖). → PENTA OS는 3계층 권한을 **명시적으로 코드/RLS에 구현**해야 함(현행은 미구현).
+- **[INV-4] PENTA OS = 5축 메뉴 / 코드 7축 = 하위 분류 호환** (운영실장 확정 Day7). 7축은 5축의 "확장 해상도"(같은 시스템 그림). 진입점=5축(운영실장 운영 시각), 필요 시 하위 7축 확장. 7→5 흡수: ①Easy-Open→신설(매장 오픈 효율화) ②OP-Profit→원가컨트롤(비용 포함 확대) ③유연운영→유연운영 ④퀄리티→VOC&CS 연결 ⑤전략적메뉴개발→유지 ⑥SCM→유지 ⑦VOC&CS→유지. "Penta=5"는 시각적 단순화. (※ manual hierarchy 3부엔 또 다른 Penta **14모듈** 정의 존재 — Day7 작업5.)
+- **[INV-5] SCM 워크플로우 = 1차 발주(현장셰프+매장매니저, 입력/실행) → 2차 확인(BOH/FOH 팀장, 검증) → 3차 확인(운영실장, 최종)** (운영실장 확정 Day7). PENTA OS 구현 = Supabase RLS + 워크플로우 상태(status: 제출됨/2차확인/3차확인). ⚠ 현행 회계 Apps Script엔 2계층(ADMIN vs BOH/FOH 사용자)만 — 3계층 워크플로우는 PENTA OS에서 신규 구현. (기술 디테일은 Phase 1 설계, 운영실장 답 불요.)
+- **[INV-6] POS 매출 = 매니저 엑셀 업로드** (POS API 영구 불가, 운영실장 확정 Day7). 흐름: POS 엑셀 → PENTA OS 화면 업로드 → 서버 파싱 → Supabase 적재. 재시도/API연동 폐기.
+- **[역할분담]** 운영실장=운영 정책/철학/지식(코드에 없는 운영 디테일). 클로드 코드=시스템 정독+기술 구현 결정(RLS/스키마/API). 대화 Claude=해석/명령변환+운영실장 결정영역만 질문. → ❓는 **운영 정책/철학 영역만**, 운영실장에게 기술 디테일 묻지 않음.
+- **[INV-9] ai_team Phase2 진입 게이트 = PENTA OS 안정화 + 본사 컨펌**(Service Account 통과). PENTA OS 설계에 **AI 에이전트 슬롯을 미리 비워둘 것**. (spec_v1.md: Phase1=단계A 공개시트 reader+Apps Script(현재 실험) / **Phase2=단계B Service Account+Streamlit+Cloud Scheduler, "본사 컨펌 대기 ⚠"** / Phase3=데이터누적후 컴플라이언스·경영비서 / Phase4=마케팅·디자인 인수 2027~28. 게이트 조건 = 본사가 GCP Service Account에 비공개 시트·자동쓰기 권한 부여 = workspace_permissions 단계B.)
 
 ---
 
@@ -661,3 +664,93 @@ flowchart TB
 - P14 인사(HR) / P19 위생(HACCP) / P15 메뉴성과 line-level — VOC&CS·메뉴개발 축 보강
 - HR센트럴/회계센트럴/로스터 GPS앱 source 추적 (유연운영 축 🟡 노드들)
 - manual/ SOP·매뉴얼 본문 v1·v2 구조 (VOC&CS 축 A44)
+
+---
+
+# Day 7 (2026-06-24) — P14 HR / P19 위생 / P15 메뉴 + 외부 source(HR·회계 센트럴·로스터) + manual SOP + 할인 3자 매핑(라이브 버그 발견)
+
+> 정정: ① 7축=5축 확장 해소([INV-4]) ② SCM 3계층 워크플로우([INV-5]) ③ POS 엑셀 업로드([INV-6]) ④ **sop_rules = 15룰**(이전 "17룰(10+7)"은 오류, 실제 SOP 10 + manual 5).
+
+## 작업1. P14 인사(HR) line-level ✅
+- ✅ 렌더 `gf_…js L430~627`(`id="p14"`). KPI 6(재직/정규/계약/파트/신규/퇴사) + 매장별 인력매트릭스(BOH·FOH×고용형태×근속) + 근속분포 + 이탈률 + **만료임박 D-30**(보건증·계약) + HR문의 분포 + 채용 funnel(공고→조회→지원→서류→최종).
+- ✅ source: **HR센트럴**(syncHRCentral 매일 05:00) → 탭 `HR_직원/HR_퇴사/HR_신규입사/HR_인사변동/HR_인원현황`(매니저 매월 입력=골든소스) + `마케팅_HR_문의`(syncHRInquiry 06:00) + `마케팅_채용_funnel`(syncRecruit 매주 13:00). ctx `전사.hr/hrCentral/recruit`.
+- ✅ 운영실장 사용 = 매일(만료 D-30) + 매주 월(HR회의 인력·이탈률) + 매월(추이). ❓ P14 데이터가 P13 스코어카드에 직접 반영되는지 미발견.
+
+## 작업2. P19 매장 위생(HACCP) line-level ✅
+- ✅ 렌더 `gf_…js L195~427`(`id="p19"`). KPI 5(시니어종합/BOH/FOH/미해결부적합·Critical/현장이행) + 매장6카드 + 시정기한초과(D-Day<0 Critical 우선) + 점검모드 매트릭스(일일/주간/마감) + 온도위반(냉장5℃/냉동-18℃)+유통임박(D-14) + 월별추이 + 부적합 카테고리.
+- ✅ source: **SZI_HACCP**(`14NU0Bc8…`, syncHaccpData 매일 13:00) 7탭(위생_항목마스터/점검/마감체크/시니어점수/부적합/이행기록/유통기한). 흐름 = **HACCP PWA(매니저+시니어셰프 입력) → raw 7탭 → BI 정규화 → ctx.전사.haccp → P19+P13위생축**.
+- ✅ P13 위생축(L8534) = **동일 haccp source**. `시니어×0.7 + (100-min(50,미해결×10))×0.2 + (100-min(30,유통임박×5))×0.1`, Critical≥1→max50 GATE, 2026-06-01부터 활성.
+- ⚠ **CON/SEL HACCP 미발견** — syncHaccpData 타깃은 SZI_HACCP만. CON 위생 시트ID ❓(P19·위생축 = 심퍼티쿠시 6매장만).
+
+## 작업3. P15 메뉴 성과 line-level ✅
+- ✅ 렌더 `gf_…js L925~1104`(`id="p15"`). 카테고리 KPI(매출/판매량/마진/메뉴종류) + 카테고리 요약표 + **Top20 메뉴 4분면** + 매장×카테고리 매트릭스 + 자동 액션 15건.
+- ✅ source: `메뉴_원가`(메뉴ID/명/브랜드/그룹/카테고리/원가/판매가/원가율/출처) + `메뉴_판매량_월별`(월/매장/메뉴ID/런치·디너수량/매출추정). syncMenuSales(`SZI_MENU` "(SZI) 판매량 분석(final)", 3단계 매칭 exact/norm/storeRow/missing).
+- ✅ 계산: 매출=수량×판매가, 마진=매출−수량×원가, 마진율, 원가율. **4분면**(효자=고판매고마진 / 박리다매=고판매저마진 / 숨은보석=저판매고마진 / 짐=저판매저마진), Top20 중앙값 기준. 액션 임계(푸드 원가율>35%/음료>30% 등).
+- ⚠ **SZI 6매장 전용**(CON/SEL는 코스 시트라 제외, L932). 레시피 분해·인건비 미포함(재료원가만). 시간대별 메뉴믹스 별도 시트(미반영).
+- 🔗 전략적 메뉴개발 축: P15 = 판매량+이론원가(재료)+가격정책(4분면) 커버. 레시피 분해·CON/SEL는 ❓미커버.
+
+## 작업4. 외부 source 인벤토리 (HR센트럴/회계센트럴/로스터GPS) ✅
+- ✅ **HR센트럴**: 시트 SZI `1ZAoai…`/CON `1M0YCX…`(브랜드별 2), Apps Script `1hEq11…`(7파일), 10탭(설정/대시보드/직원DB통합/퇴사자/신규입사/인원현황/PT집계/일용직집계/인사변동/이용가이드). **입력=직접 안 함, 9개 지점 로스터에서 매일06시 자동집계** + 월간보고서 1일07시. LIVE(06-23 수정, 117명 실데이터). ⚠ 브랜드별 2시트 → PENTA fact는 brand 통합 필요.
+- ✅ **회계센트럴**: 시트 SZI `11NNmBN…`/CON `18Wpcf4…`, owner=회계담당(팀장). 탭(설정/대금현황/대금데이터/대시보드/업체마스터/지출결의서). **입력=지점 회계시트 입력-N월 탭(BOH A7:D41/FOH A44:D78) 월간 수집(1일11시)** + 업체/계좌 수기. LIVE이나 ⚠빌드중. ⚠ 월/팀/계정과목 집계레벨(일별 raw 아님), 업체마스터에 계좌 secret 다수.
+- ✅ **로스터 GPS앱**: 18 로스터시트(지점×BOH/FOH), 자체개발 앱(fnb-hr.vercel.app + web-manager PWA). **직원 QR+GPS 출퇴근 → 근태집계(GPS좌표 컬럼) + Supabase `fact_attendance`**. 팀장 휴가/계약 시트 승인. SETTING H3/H4 ROSTER_ID → 월말결산 탭. 급여→회계는 월1회 `syncTeamFromRoster_` 시트동기화(일별 손실 ⚠). LIVE(06-24 수정).
+- ✅ **[입력 방식 표] (작업4 산출)**:
+| 데이터 | 현재 입력 | PENTA OS 입력 방식 | 결정 |
+|---|---|---|---|
+| POS 매출 | 엑셀 다운 → 시트 | **엑셀 업로드 → 파싱** | ✅ [INV-6] |
+| 회계 거래 | 지점 회계시트 입력-N월 → 회계센트럴 월간수집 | ⬜ Phase1 | ⬜ |
+| 인건비(로스터) | 앱 QR+GPS 출퇴근→근태 / 월1회 회계동기화 | ⬜ Phase1(앱 fact_attendance 직결 검토) | ⬜ |
+| VOC 수기 | FIC 1Ve6 수기 입력 | ⬜ Phase1 | ⬜ |
+| 리뷰 | review_project PC 배치 | **유지(PC)** | ✅ |
+| HACCP | HACCP PWA → SZI_HACCP 시트 | ⬜ Phase1 | ⬜ |
+| 캐치 예약 | 캐치 매니저 JWT 캡처 | 동일(영구 추정) | ✅ |
+| 예약율 | SZI/CON_RESERVE 대시보드 | ⬜ Phase1 | ⬜ |
+| 임계값 | 임계값_정보 탭 | **PENTA OS admin** | ⬜ Phase1 |
+| 발주/식자재 | 회계 9쌍 발주 입력(회계센트럴 대금데이터) | ⬜ Phase1(SCM 3계층 워크플로우) | ⬜ |
+| 메뉴 판매량 | 판매량 시트(SZI수동) | ⬜ Phase1(POS 엑셀 포함?) | ⬜ |
+- ❓ HR/회계 센트럴·로스터 앱 코드 본문 = owner bound script 미clone(동작은 이용가이드·동기화.js로 확인). `fact_attendance` 실시간 적재 빈도 ❓.
+
+## 작업5. manual/ SOP·매뉴얼 본문 구조 ✅
+- ✅ **체계**: FOH 대분류 5(조회/입점/안내/홀플레이/퇴점), BOH 대분류 5(오픈프렙/준비/서비스/마감/점검). 본문 **12필드**(WHEN/WHERE/WHO/TAG/행동단계/표준멘트/포인트/QC/연결SOP/측정/변경이력).
+- ✅ **v1→v2**: v1=MD 정립본(Tier 우선순위 작성, 드래프트). **v2=2026-05-20 구글시트(`1apm9eR9…`)로 SSOT 전환 후 export 백업**(대분류 순서 정렬, governance에 **AI-Responsible 컬럼 신설**). 즉 v2는 개정판이 아니라 시트 전환 정렬본. MD↔시트 양방향(import: Main.gs `?action=import` 7시트 / export: sheets_export CSV 9종).
+- ✅ **코드 체계 원천**: SOP **25개 카탈로그(A1~F3)** = `governance_v1` L82-100(A고객접점/B운영표준/C음식품질/D인사/E사고위기/F보고관리). 강제강도 **3분류(🔴Mandatory/🟡Recommended/🟢Discretionary)** = `taxonomy`. 둘은 별개 축.
+- ✅ **RACI 단일 A = 운영실장**(모든 SOP 동일 Accountable, 100매장 확장 대비). 개정사이클 = 분기 사례DB → SOP 디렉터(AI) v0.x 초안 → 운영실 발효.
+- ⚠ **[정정] sop_rules.py = 15룰** (SOP 10: A1/B3/C1/C4/D1/D2/D3/E1/E2/F1 + manual 5: FOH 예약·환경·VIP / BOH 검수·온도). 이전 "17룰(10+7)"은 오류. governance 25개 중 외부리뷰 감지가능 부분집합.
+- 🆕 **manual hierarchy 3부 = "Penta O.S 14모듈"**(운영실장 정립, 13필드 RACI/데이터흐름/KPI). → Penta 정의가 **3종 공존**: p8 7축 / IA 5축 / hierarchy 14모듈. ❓ 14모듈 ↔ 5축 매핑 미정(Day8).
+- ⚠ `sop_combined_v2.md` = 헤더만(빈 파일). 진척 README "매뉴얼 ~83%(177/215)".
+
+## 작업6. 할인 3자 매핑 — 라이브 데이터 버그 발견 ⚠ (클로드 코드 책임)
+- ✅ **OP `2.할인` 탭 실측 분류 = 10종**(SZI 용산 249행 + CON 콘피에르 356행): 프로모션/직원할인/인플루언서/클레임 응대/대표님 요청/선결제 사용/예약금 차감/지인서비스/예약금 환불/상품권 회수.
+- ✅ **정상 매핑 6종**: 프로모션→promo / 직원할인→staff / 인플루언서→influencer / 대표님 요청→ceo_request / 클레임 응대→voc_compensation / 예약금 차감→reservation_cancel. 지인서비스→staff.
+- 🐞 **bridge 오분류 3종 (LIVE 버그, 내가 작성)**: `bridge_c_sync_voc_haccp_discount.js` `BR_DISCOUNT_CATS`에 키 누락 → **"선결제 사용"·"예약금 환불"·"상품권 회수"가 전부 fallback `operation_error`로 오분류 적재 중**.
+  - **[FIX 필요]** 키 추가: `'선결제 사용'→prepayment_redemption`, `'예약금 환불'→reservation_cancel`, `'상품권 회수'→신규 voucher_redemption 또는 prepayment_redemption`. → 적용 시 재sync로 operation_error 정화(Day4 mig284와 동일 사상). **운영실장 정책 아님 = 클로드 코드 fix 대상, 다음 작업서 적용 가능**.
+- ✅ **admin 전용(라이브 fact 미적재) 10종 결정**: vip/noshow/senior/coupon/partnership/private_event/xiaohongshu/kids/corkage + prepayment_redemption(매핑끊김). → **결정: 라이브 OP 입력 없는 9종(vip~corkage)은 dim에서 "보류/미사용" 태그, 코드 매핑 제거. prepayment_redemption은 fix로 살림.** admin UI는 라이브 등장 카테고리만 표시하도록 정리.
+- ⚠ 9개 OP 시트 중 2개만 실측 — 나머지 7개에 신규 분류값 가능성 배제 못 함(전수 distinct 필요 시 추가 열람).
+
+## Day 7 발견 요약
+1. ✅ P14 HR(HR센트럴 매일05시, 만료D-30 매일 점검) / P19 위생(SZI_HACCP 7탭, P13위생축 동일source, CON 미발견) / P15 메뉴(SZI 6매장 4분면) line-level.
+2. ✅ 외부 source 3개 LIVE 확정 + 입력방식 표 채움. 로스터=QR+GPS→fact_attendance.
+3. ✅ manual: v2=시트(1apm9eR9) SSOT 전환본, SOP 25카탈로그(governance)+3강제분류(taxonomy), RACI 단일A=운영실장. sop_rules **15룰**(정정).
+4. 🐞 할인 bridge 오분류 3종(선결제사용/예약금환불/상품권회수→operation_error) = FIX 필요. admin 9종 보류 결정.
+5. 🆕 Penta 정의 3종 공존(7축/5축/14모듈).
+
+## Day 7 질문 (❓ 운영 정책/철학만)
+- ❓ Q25: CON/SEL 위생(HACCP)·메뉴성과는 PENTA OS에서 SZI와 동일 수준으로 다룰 것인가, 현행대로 SZI 전용 유지인가? (운영 범위 결정)
+- ❓ Q26: "상품권 회수" 할인은 회계상 선결제 회수와 같은 성격인가(→prepayment_redemption 병합), 별도 분류인가? (분류 정책)
+- ❓ Q27: manual hierarchy "Penta O.S 14모듈"이 5축 IA의 실행 모듈 목록인가? (14모듈↔5축 매핑은 운영실장 정립물)
+
+## 작업7. 리뷰 인사이트 webapp 버그 2건 ✅ (→ GitHub Issue #2, PENTA OS 이후)
+- 🐞 **버그1 캐시 무효화 무효**: `clearAllCache()`(Code.gs L474)가 `cache.removeAll(['bootstrap_v6'])` — stale 키만 제거. 현행 캐시 키 = `bootstrap_v9`(L136 `_cacheGet('bootstrap_v9')`). → 새로고침 버튼 눌러도 v9 캐시 미삭제, 10분 만료 전까지 갱신 안 됨. **수정 = 1줄**(L474를 `bootstrap_v9`로, 또는 키 상수화). ✅ 줄 재확인 완료.
+- 🐞 **버그2 타임존**: `appsscript.json` L2 `"timeZone": "America/New_York"` (한국 매장). → Utilities.formatDate·"오늘" 판정·일별 경계가 EST로 틀어질 수 있음. **수정 = `Asia/Seoul`**, 단 기존 표시 일관성 영향 확인 후. ✅ 위치 확인.
+- → **즉시 수정 X, Issue #2 기록만**(우선순위 낮음, PENTA OS 빌드 이후). PENTA OS 이관 대상.
+
+## 작업8. ai_team Phase 게이트 ✅ (→ [INV-9])
+- ✅ **Phase 1**(단계A, 현재 실험): 공개시트 reader + Apps Script 트리거 + 구글챗 Webhook. 대상 = 컴플레인VOC/KPI일부/위생모니터(Tier1). 기간 1-2주.
+- ✅ **Phase 2**(단계B, ⚠ **본사 컨펌 대기**): **Service Account + Streamlit 통합 + Cloud Scheduler**. 대상 = KPI풀/원가감시/일일보고/인력교육(Tier2). 기간 Service Account 통과 시점부터 1-2개월. **게이트 = 본사가 GCP Service Account에 비공개 시트·자동쓰기 권한 부여**(workspace_permissions 단계B 도달).
+- ✅ **Phase 3**(데이터 누적 후): 컴플라이언스+경영비서(Tier3), Opus 4.7 고도분석, 본사 보고 자동화. Phase2 안정 후 1-2개월.
+- ✅ **Phase 4**(장기, 2027~28): 마케팅 전략관+신규점 코치. 시점 = 운영실 OS 검증 완료 + 마케팅·디자인 인수.
+- 🔗 **PENTA OS 통합 의도**: spec의 Phase2 게이트(Service Account+Streamlit) = 운영실장 "PENTA OS 완성 후 본격화"와 대응. → **[INV-9] PENTA OS 설계에 AI 에이전트 슬롯 미리 비워둘 것**. ⚠ spec은 Streamlit 가정이나 운영실장 의도는 PENTA OS(웹앱) 통합 — 통합 타깃이 spec(Streamlit) vs PENTA OS로 갈림, PENTA OS 우선.
+
+## 다음 (Day 8)
+- 할인 bridge 오분류 FIX 적용(클로드 코드) + 재sync 검증
+- Penta 14모듈 ↔ 5축 매핑 (manual hierarchy 3부 정독)
+- 마케팅 13시트 1차 스캔(보류 축이나 PENTA OS 경계 확인)
