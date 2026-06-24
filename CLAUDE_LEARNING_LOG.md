@@ -549,7 +549,13 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - **[INV-11] 할인 = 운영 데이터 기반 분류** (Q26, Day8). 라이브 실측 = **9 카테고리**(promo/influencer/prepayment_redemption/staff/reservation_cancel/voc_compensation/ceo_request/operation_error/gift_certificate). admin이 만든 추가 9종(vip/noshow/senior/coupon/corkage/kids/xiaohongshu/private_event/partnership) = **라이브 0행 → 보류**. ⚠ Day9 정정: gift_certificate(상품권)는 **매출 가능성**(Q31 검토), noshow는 라이브 0(매출 처리). 최종 분류는 [INV-13] 검증 후 확정.
 - **[INV-10 갱신]** (Day9 Q30): 9매장 동일 운영 수준 = SZI **전체 메뉴** 4분면 / CON·SEL **에딩(애피타이저)+추가 메뉴만** 4분면(**코스 본체는 4분면 불가** — 판매량 변별 부족). 위생(HACCP)은 9매장 동일 7탭.
 - **[INV-12] PENTA OS Phase 1~3 = 운영실 5축 전용. Phase 4(Phase3 안정화 후 6~12개월) = 마케팅 확장** (운영실장 철학 Day9). 마케팅 13시트는 그때 PENTA OS에 흡수. "100% 완성은 환상" — 동시 빌드 금지, 5축 완성→안정화→마케팅 순차.
-- **[INV-13] OP 시트 raw 분류 = 매출 vs 할인 명확 구분** (Day9, 도메인 정정). **매출 행위(gross_revenue로): 상품권 받음/사용·예약취소금(noshow 보관)** / **매출 차감(fact_discount로): 순수 할인만**. → 클로드 코드가 OP raw 카테고리 처리 시 **일반 BI 패턴 가정 금지, 운영실장 검증 필수**(한국 F&B 도메인 특화). Day8 gift_certificate 신설이 이 룰의 위반 사례 — Q31로 재검토.
+- **[INV-13] OP 시트 raw 분류 = 매출 vs 할인 명확 구분** (Day9, 도메인 정정). → 클로드 코드가 OP raw 카테고리 처리 시 **일반 BI 패턴 가정 금지, 운영실장 검증 필수**(한국 F&B 도메인 특화). ⚠ Day10 정정: 상품권은 **매출 인식 유지 + POS 할인코드(회계 조정)** = [INV-14] Tier2(매출 손실 0). 분류는 아래 3-tier로 확정.
+- **[INV-14] OP 시트 3-tier 매출 구조** (운영실장 Day10 확정):
+  - **Tier 1 매출 인식**(gross_revenue): 포스/전산 실매출(런치·디너·합계) · 딜리버리(배민·쿠팡) · **예약취소금**(noshow 예약금 보관→매출) · 캐치페이.
+  - **Tier 2 매출 인식 후 차감**(fact_discount, 매출은 그대로): 인플루언서·프로모션·직원할인·지인서비스·클레임응대(voc_compensation)·대표님요청 · **상품권**(POS 할인코드지만 현물 자산 수령 = 매출 손실 0, 회계 조정).
+  - **Tier 3 실매출 미포함**(이중계산 방지): 선결제 사용(prepayment_redemption)·예약금 환불(reservation_cancel).
+  - → PENTA OS는 이 3-tier를 화면에서 명시적으로 분리. 상품권=gift_certificate 보존(Day8 fix 유지, Q31=옵션D).
+- **[INV-15] 라이브 카논은 함수별로 분리** (Day10): **sync 브리지(syncSalesDailyAll/syncDiscountAll/syncAccountLogsAll) 카논 = `apps-script-bridge/`**(BI→fact). **syncOpData(OP→BI) 카논 = 대시보드 프로젝트(`1UlH7…`, 배포소스 `live_src/be_sync_op.js`)**. ⚠ `live_src/bridge_*`는 스테일 사본(혼동 주의). PENTA OS 빌드 시 **카논 단일화 + 동기화 자동화 필수**(수동 복제가 STALE 버그 2건의 근원).
 
 ---
 
@@ -899,3 +905,63 @@ flowchart TB
 - Q31 확정 → 할인 분류 최종 + mig286 조정 + 재sync
 - PENTA OS Phase 1 스키마 확정 + 마이그레이션(fact_purchase_order 등) + 5축 앱 라우팅 스캐폴드
 - 재sync 후 할인/매출 분포 재검증
+
+---
+
+# Day 10 (2026-06-24) — 예약취소금 sync 버그 FIX + 3-tier 검증 + 카논 정합 + Phase1 스키마확정 + /flex 스캐폴드 (Phase 0 종료)
+
+> 운영실장 확정: Q31=상품권은 **회계 조정**(매출손실0, gift_certificate 보존, Day8 fix 유지). Q32=예약취소금 1.SA J열 실재(일부 ₩40,000) → fact_sales 0적재=**sync 버그**.
+
+## 작업1. 예약취소금 sync 버그 FIX ✅ (근본원인 발견·수정)
+- 🐞 **근본원인**: `be_sync_op.js` `syncOpData`가 OP 1.SA 예약취소금을 **`mp.rc`로 읽고도**(SZI r[10]/CON r[8], L72/75) newRow position 16에 **하드코딩 `0`**으로 버림(L87 `…Number(mp.dc)||0, 0, Number(c.ck)…`). → BI 매출_일별 col16(예약취소금) 항상 0 → bridge_a가 정상 read해도 0 → fact_sales `reservation_cancel_amount`=0(829행 전부). beverage(col23)는 정상이라 811행 적재 = **예약취소금만 단독 누락**.
+- ✅ **FIX**: L87 `0` → `Number(mp.rc)||0` (live_src/be_sync_op.js). mirror grep으로 **라이브 동일 버그 확진**(apps-script-mirror L87 `,0,`).
+- 🔴 **재sync 필요(운영실장)**: [4-체크리스트] 프로젝트=운영실 대시보드(`1UlH7sYMBcUfTOap72kcaODkPv7zW8gbBVkD3_0Oww1Q55uN4JPq4ZBfk`) / 파일=`be_sync_op.js`(clasp push 후) / 함수=**`syncOpData` 먼저, 그다음 `syncSalesDailyAll`**(bridge) / 로그=fact_sales `reservation_cancel_amount`>0 행수 + 캡처값(6/8 ₩40,000 등) 대조. → BI 매출_일별 재생성 후 bridge 재sync해야 fact 반영.
+- ⚠ 검증은 재sync 후 가능(현재 코드만 수정, 라이브 데이터 0 유지).
+
+## 작업2. OP 3-tier 구조 코드 검증 ✅ → [INV-14]
+- ✅ **syncOpData newRow 27컬럼 = Tier 매핑 확인**(be_sync_op.js L85-88):
+  - **Tier1(매출)**: 포스런치/디너/합계(8-10) · 전산런치/디너/합계(11-13) · 배달배민/쿠팡(14-15) · **예약취소금(16, FIX 전 0)** · 캐치런치/디너(17-18). 전산_합계(13) = BI→fact `total_sales_input`.
+  - **Tier2(할인, 별도 fact_discount)**: 인플루언서(19)·프로모션(20)은 BI에도 있으나 **할인은 별도 `할인_일별`→fact_discount 경로**(syncDiscountAll, 9분류). 매출은 전산_합계에 이미 포함(차감 아님).
+  - **Tier3(실매출 미포함)**: 선결제 사용·예약금 환불 = `할인_일별`에서 prepayment_redemption/reservation_cancel → fact_discount(이중계산 방지, mig284).
+- ✅ **누락 매출 컬럼 = 예약취소금 1건**(작업1 FIX). 그 외 Tier1 컬럼 정상.
+- ✅ Tier2 9분류 정합(Day8/9). Tier3 mig284 후 정합(operation_error 33행).
+
+## 작업3. 라이브 카논 정합 ✅ → [INV-15]
+- ✅ **카논 = 함수별 분리**(중요): syncOpData(OP→BI)=대시보드 프로젝트 `1UlH7`(소스 live_src/be_sync_op.js) / sync 브리지(BI→fact: syncSalesDailyAll·syncDiscountAll·syncAccountLogsAll)=별도 브리지 프로젝트(소스 **apps-script-bridge/**).
+- ⚠ **STALE 사본 2건**: `live_src/bridge_a_sync_sales.js`(9컬럼, Day-2 7컬럼 누락) = 비배포 스테일. → live_src는 dashboard(be_sync_op/render)용이고 bridge_*는 apps-script-bridge가 카논. 동기화는 **수동**(자동화 없음) = STALE 버그 근원.
+- ✅ **동기화 규칙 등재([INV-15])**: PENTA OS는 단일 카논 + CI 자동배포로 수동복제 제거.
+
+## 작업4. PENTA OS Phase 1 스키마 확정 ✅ (migration 287 적용)
+- ✅ **5축 라우팅 확정**: `/`(통합) `/flex`(유연운영) `/cost`(원가) `/scm` `/voc` `/menu`.
+- ✅ **fact_discount 9분류 확정([INV-11] 갱신)** — 매출 차감 8 + gift_certificate(회계조정):
+  promo / influencer / staff / ceo_request / reservation_cancel / prepayment_redemption / voc_compensation / operation_error / **gift_certificate(매출손실 0)**.
+- ✅ **fact_sales 컬럼 확정**: total_sales_calc(생성열 11채널합)·total_sales_input·pos/baemin/coupang/catch · **reservation_cancel_amount**(작업1 FIX 후 적재) · beverage_sales/ratio · sales_lunch/dinner · guest_lunch/dinner · avg_ticket(생성열).
+- ✅ **migration 287 적용**: `fact_purchase_order`(SCM 3계층) + `po_status` enum(draft/submitted/team_confirmed/ops_confirmed/rejected) + created_by(1차)/team_confirmed_by(2차)/ops_confirmed_by(3차) + source_ref UQ + RLS enable + 골격 정책. **DB 적용 확인(success)**.
+- ✅ 엑셀 업로드 파서 spec([INV-6]): POS 엑셀→업로드→서버 파싱(dim 컬럼매핑)→fact_sales_daily, source_ref=파일hash/행 멱등.
+
+## 작업5. PENTA OS /flex 페이지 스캐폴드 ✅ (P1 3/14 섹션)
+- ✅ **생성**: `apps/web-admin/src/app/(authed)/flex/page.tsx`(server, fact_sales_daily 조회) + layout.tsx 네비 "유연운영(운영 전략 P1)" 추가.
+- ✅ **P1 첫 3섹션**: ①KPI Row 6(직전7일 전산매출·이번달매출·객수·객단가·음료비중·런치비중) ②시스템 헬스(FreshnessBadge 신선도 + 적재 매장수) ③데이터 무결성(매장×7일 적재 매트릭스 + reservation_cancel 합 = Q32 검증표시).
+- ✅ @fnb/ui apple 토큰만(bg-white 하드코딩 0, --apple-ink). 직전7일 = 어제~7일전 rolling(P1 동일), total_sales_calc 단일합산(이중계산 금지룰 준수).
+- ✅ **검증**: `tsc --noEmit` EXIT 0 통과. (브라우저/스크린샷 미실행 — 운영실장 육안 1:1 검증은 배포 후.)
+- ⏳ **미구현 11/14**: 신규월배너·페이스/달성률·같은요일비교·지점별일별표·오늘의안건·매출위기감지·수익성4분면·런치디너매트릭스·예약워크인·트리거health·12개월차트. (일부는 fact_sales_monthly·예약테이블 추가 필요.)
+
+## Day 10 발견 요약
+1. 🐞→✅ 예약취소금 sync 버그 = syncOpData 하드코딩 0(읽고도 버림). FIX 적용, 재sync 필요. 라이브 확진.
+2. ✅ 3-tier 구조 코드 검증 → [INV-14]. 누락 매출 = 예약취소금 1건뿐(수정됨).
+3. ✅ 카논 = 함수별 분리(syncOpData=dashboard / bridge=apps-script-bridge), STALE 2건 → [INV-15].
+4. ✅ Phase1 스키마 확정 + migration 287(fact_purchase_order) 적용. 할인 9분류·fact_sales 컬럼 확정.
+5. ✅ /flex 스캐폴드 P1 3/14 섹션, tsc 통과.
+
+## 🏁 Phase 0 종료 선언
+- ✅ CLAUDE_LEARNING_LOG Day1~10 누적 / 운영 17챕터 line-level 100% / 회계9쌍·review_project·ai_team·HR/회계/로스터 인벤토리 / 5축 IA+7축+14모듈 / SCM 3계층 / OP 3-tier[INV-14] / 카논[INV-15] / 불변량 INV-1~15 / **데이터 버그 fix 2건(할인 오분류 + 예약취소금 sync)** / Phase1 스키마 확정 + /flex 스캐폴드.
+- ➡ **Phase 1 본격 진입.**
+
+## Day 10 질문 (❓ 운영 정책만)
+- ❓ Q33: 재sync 후 예약취소금 적재 검증 시 캡처 기준값(예: 특정 매장/일자) 한둘 알려주시면 일치 확인 가속.
+- (Q31/Q32 해소됨.)
+
+## 다음 (Phase 1)
+- 운영실장 재sync(syncOpData→syncSalesDailyAll) 후 reservation_cancel_amount 적재 검증
+- /flex P1 나머지 11섹션 (fact_sales_monthly·예약 테이블 추가 후)
+- /cost /scm /voc /menu 축 페이지 + SCM 3계층 워크플로우 UI(fact_purchase_order)
