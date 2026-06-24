@@ -542,7 +542,11 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - **[INV-5] SCM 워크플로우 = 1차 발주(현장셰프+매장매니저, 입력/실행) → 2차 확인(BOH/FOH 팀장, 검증) → 3차 확인(운영실장, 최종)** (운영실장 확정 Day7). PENTA OS 구현 = Supabase RLS + 워크플로우 상태(status: 제출됨/2차확인/3차확인). ⚠ 현행 회계 Apps Script엔 2계층(ADMIN vs BOH/FOH 사용자)만 — 3계층 워크플로우는 PENTA OS에서 신규 구현. (기술 디테일은 Phase 1 설계, 운영실장 답 불요.)
 - **[INV-6] POS 매출 = 매니저 엑셀 업로드** (POS API 영구 불가, 운영실장 확정 Day7). 흐름: POS 엑셀 → PENTA OS 화면 업로드 → 서버 파싱 → Supabase 적재. 재시도/API연동 폐기.
 - **[역할분담]** 운영실장=운영 정책/철학/지식(코드에 없는 운영 디테일). 클로드 코드=시스템 정독+기술 구현 결정(RLS/스키마/API). 대화 Claude=해석/명령변환+운영실장 결정영역만 질문. → ❓는 **운영 정책/철학 영역만**, 운영실장에게 기술 디테일 묻지 않음.
+- **[INV-7] 리뷰크롤러(review_project)는 PC 배치 유지** (재구현 X, Day5 답2). PENTA OS는 review_project가 1CbmPsm에 채운 리뷰 데이터를 **읽기만**. PC 의존 유지.
+- **[INV-8] SOP/매뉴얼 SSOT = 구글시트 `1apm9eR9…`** (Day7). MD(manual/)는 백업·사람가독용. RACI 단일 Accountable = 운영실장(전 SOP 동일). SOP 25 카탈로그(A1~F3, governance) + 강제강도 3분류(🔴🟡🟢, taxonomy)는 별개 축.
 - **[INV-9] ai_team Phase2 진입 게이트 = PENTA OS 안정화 + 본사 컨펌**(Service Account 통과). PENTA OS 설계에 **AI 에이전트 슬롯을 미리 비워둘 것**. (spec_v1.md: Phase1=단계A 공개시트 reader+Apps Script(현재 실험) / **Phase2=단계B Service Account+Streamlit+Cloud Scheduler, "본사 컨펌 대기 ⚠"** / Phase3=데이터누적후 컴플라이언스·경영비서 / Phase4=마케팅·디자인 인수 2027~28. 게이트 조건 = 본사가 GCP Service Account에 비공개 시트·자동쓰기 권한 부여 = workspace_permissions 단계B.)
+- **[INV-10] PENTA OS = 3브랜드 9매장 동일 운영 수준** (Q25 옵션A, Day8). SZI 전용 도구(HACCP 7탭 / 메뉴 4분면)를 CON/SEL 3매장에도 신설. **운영 일관성이 PENTA OS 핵심 가치**. → 빌드 범위 확장(작업5).
+- **[INV-11] 할인 = 운영 데이터 기반 분류** (Q26, Day8). 라이브 실측 = **9 카테고리**(promo/influencer/prepayment_redemption/staff/reservation_cancel/voc_compensation/ceo_request/operation_error/gift_certificate). admin이 만든 추가 9종(vip/noshow/senior/coupon/corkage/kids/xiaohongshu/private_event/partnership) = **라이브 0행 → 보류**. ⚠ 운영실장 제시 "정상6"의 noshow는 라이브 0행, 대신 voc_compensation(클레임응대) 226행 실재 → Q28 검증.
 
 ---
 
@@ -754,3 +758,80 @@ flowchart TB
 - 할인 bridge 오분류 FIX 적용(클로드 코드) + 재sync 검증
 - Penta 14모듈 ↔ 5축 매핑 (manual hierarchy 3부 정독)
 - 마케팅 13시트 1차 스캔(보류 축이나 PENTA OS 경계 확인)
+
+---
+
+# Day 8 (2026-06-24) — 할인 bridge FIX(라이브 적용) + Penta 14모듈↔5축 + 마케팅 13시트 + 9분류 + CON/SEL 범위 + Phase 0 점검
+
+## 작업1. fact_discount bridge 오분류 FIX ✅ (라이브 적용·검증 완료)
+- ✅ **진단(정밀)**: 라이브 `live_src/bridge_c_sync_voc_haccp_discount.js`(scriptId `1UlH7…`=운영실 대시보드 본체) `_syncOneDiscount` L96이 **fallback 없는 `_brMapDiscountCat` 호출**. `BR_DISCOUNT_CATS`에 '선결제 사용'/'예약금 환불'/'상품권 회수' 키 없음 → 전부 `operation_error` 추락. **현재 데이터가 깨끗했던 건 Day4 mig284(memo 기반 일회성) 덕분 = 재sync 시 회귀하는 취약 구조**.
+- ✅ **FIX 적용 (2파일)**: `live_src/…js` + `apps-script-bridge/…gs` `BR_DISCOUNT_CATS`에 키 추가 — '선결제 사용'·'선결제'→`prepayment_redemption`, '예약금 환불'→`reservation_cancel`, '상품권 회수'·'상품권'→`gift_certificate`(신규). → **bridge가 직접 정분류, mig 의존 제거(영구)**.
+- ✅ **migration 286 적용**: `dim_discount_category`에 `gift_certificate`('상품권 회수') 시드 + 기존 operation_error 중 memo 상품권 → gift_certificate backfill.
+- ✅ **검증 (Supabase 실측, SQL 제시)**:
+| | before | after |
+|---|---|---|
+| operation_error | 39행 / 3,077,000 | **33행 / 1,877,000** |
+| gift_certificate | (없음) | **6행 / 1,200,000** |
+  → 상품권 6건 operation_error→gift_certificate 정확 이동. 선결제/예약금환불은 mig284가 이미 처리(추가 0).
+- 🔴 **재sync 필요(운영실장)**: bridge map은 고쳤으나 **clasp push + syncDiscountAll 재실행**해야 bridge-side 정분류가 적재에 반영(현 33 operation_error 중 memo 미매칭분 정화). [4-체크리스트] 프로젝트=운영실 대시보드(`1UlH7sYMBcUfTOap72kcaODkPv7zW8gbBVkD3_0Oww1Q55uN4JPq4ZBfk`, script.google.com) / 파일=bridge_c_sync_voc_haccp_discount / 함수=`syncDiscountAll` / 로그=실행 로그+Supabase 재query.
+
+## 작업4. PENTA OS 할인 9분류 확정 ✅ (라이브 실측 기반 — 운영실장 목록과 차이 발견)
+- ✅ **라이브 실측 9 카테고리** (Supabase 현재):
+| # | category_id | 한글 | OP 분류값 | rows |
+|---|---|---|---|---|
+| 1 | promo | 프로모션 | 프로모션 | 3442 |
+| 2 | influencer | 인플루언서 | 인플루언서 | 891 |
+| 3 | prepayment_redemption | 선결제 회수 | 선결제 사용 | 604 |
+| 4 | staff | 직원할인 | 직원할인+지인서비스 | 417 |
+| 5 | reservation_cancel | 예약취소 | 예약금 차감+예약금 환불 | 347 |
+| 6 | voc_compensation | VOC보상 | 클레임 응대 | 226 |
+| 7 | ceo_request | 대표님요청 | 대표님 요청 | 140 |
+| 8 | operation_error | 운영실수 | (미매핑·기타) | 33 |
+| 9 | gift_certificate | 상품권 | 상품권 회수 | 6 |
+- ✅ **보류(라이브 0행) 9종**: vip/noshow/senior/coupon/corkage/kids/xiaohongshu/private_event/partnership → dim 유지하되 admin UI 미표시, 코드 매핑 제거. [INV-11].
+- ⚠ **운영실장 제시 목록과 차이(정직 보고)**: 운영실장 "정상6"에 **noshow** 포함했으나 라이브 noshow=**0행**. 반면 **voc_compensation(클레임 응대)=226행** 실재(운영실장 목록엔 없음). → 라이브 기준 9분류는 voc_compensation 포함/noshow 제외가 맞음. **Q28 검증 요망**.
+
+## 작업2. Penta 14모듈 ↔ 5축 매핑 ✅ (manual hierarchy 3부)
+- ✅ **14모듈 = Layer A(데이터수집 6) + B(통합분석 5) + C(의사결정·표준화 3)** (manual_hierarchy_v1 L506~2101, 운영실장 정립):
+  - **A**: 1.1 판매량분석 / 1.2 매장회계 / 1.3 수불관리 / 1.4 HR결산센트럴 / 1.5 위생점검 / 1.6 VOC취합.
+  - **B**: 2.1 종합원가율 / 2.2 세트메뉴시뮬 / 2.3 비용결산센트럴 / 2.4 적정인력배치(매출예측 EngineA v5) / 2.5 이슈리포트.
+  - **C**: 3.1 입점검토시뮬(미개발) / 3.2 운영KPI대시보드(14모듈 통합·3뷰) / 3.3 SOP·MSP(완성).
+- ⚠ **핵심 발견**: manual의 **도메인 필드 = "5+2"(=7축)** 모델 — 라이브 p8 7축과 1:1 정합. 운영실장 IA "5축"은 **퀄리티↔VOC 치환 변형** → 14모듈 중 **1.5/2.5/3.3(퀄리티 3) + 3.1(Easy-Open)이 5축에 갈 칸 없음**. 즉 14모듈은 5축이 아니라 **7축의 실행 모듈 목록**(파일 근거). → **[INV-4] 재확인 필요**: "Penta=5"는 메뉴 단순화이고, **실행 레이어는 7축(=14모듈 도메인)이 정확**. 5축 흡수 시 퀄리티 모듈 행방 운영실장 결정.
+- ✅ 14모듈 ↔ Day1~7 노드: 1.2=회계9쌍 / 1.1·1.3=OP9쌍 / 1.4=HR(로스터18+센트럴) / 1.5=SZI_HACCP / 1.6=FIC+크롤러 / 3.2=라이브 대시보드 본체 / 3.3=SOP거버넌스+ai_team. ⚠ 2.4 매출예측엔진(별도 11시트)·2.2 메뉴시트는 16노드에 누락 가능.
+
+## 작업3. 마케팅 13시트 1차 스캔 ✅ (마케팅팀장 영역)
+- ✅ **13시트**(MKT_SHEETS, Code.js): 상위노출_공통 / CON·SZI KPI지표 / CON·SZI 카카오 / CON·SEL·SZI 시딩(3) / CONSEL·SZI META광고(2) / CON·SEL·SZI CRM(3). 입력=A팀(심퍼)/B팀(콘피), 빈도 일·월·발송단위.
+- ✅ **M0~M10 연결**: 13 raw → Code.js sync → BI 마스터 탭 → gh 챕터. M0 전사/M1 사령탑/M2 검색→예약/M3 META/M7 SEO/M8 시딩/M9 CRM/M10 카카오. (M4~M6 없음, M11 회귀 미구현.)
+- ✅ **5축 흡수 판단 = 독립(6번째) 축**: PENTA constants(7영역)·트랙 a~i(track i=마케팅)·매장점수 6축 어디에도 마케팅 없음 → 운영 5축에 종속 안 됨. **마케팅팀장 빌드 영역**(track i 보류). ❓ PENTA OS가 정식 6축 승격할지 미결정.
+
+## 작업5. CON/SEL 위생·메뉴 빌드 범위 ✅ (Q25 옵션A)
+- ✅ **CON/SEL HACCP = 신설 필요 확정**: CON `(CON)위생관리` 폴더 있으나 SZI식 7탭 구조 **없음**(월간 안전교육+수료증 PDF만). SEL 위생 시트 흔적 전무.
+- ✅ **신규 입력 5종**(SZI_HACCP 7탭 중): 점검(INSP)·마감체크(CLS, 온도)·부적합(NC)·이행기록(FLD)·유통기한(EXP). + 항목마스터 세팅·시니어 월간점수. **입력자 = 매장 매니저(HR에 존재 ✅) + 시니어셰프(CON/SEL 배정 ❓)**. sync는 `syncHaccpData` 지점매핑 확장으로 재사용 가능.
+- ⚠ **CON/SEL 메뉴 4분면 = 데이터 부재**: 콘피에르/셀렉션 메뉴 시트 = 브로셔·코스소개(판매량 0). 매장×메뉴×월 판매수량 시트 없음. `syncMenuSales` 브랜드 '심퍼티쿠시' 하드코딩. **SEL 코스 4분면 적용성 ❓**(코스 단위 판매량 소스 필요).
+- ✅ **입력방식 표 추가**: HACCP CON/SEL=PWA 매장 추가(5종 입력) / 메뉴 CON/SEL=판매량 시트 신규(SEL 코스 적용성 검증).
+
+## 작업6. Phase 0 종료 점검 ✅
+- ✅ **운영 17챕터 line-level 완료 = 13/17**: P1·P5·P6·P7·P8·P9·P10·P11·P13·P14·P15·P18·P19. **미완 4**: P2·P3·P4(브랜드별 매출 — P1 로직의 브랜드 필터, ge L13067~ 차트 확인됨/⚠ ctx 별도검증 미완) + P21(상세 매출 ❓미착수).
+- ✅ **5축 매핑**: 완료(단 14모듈=7축 정합 ⚠, 마케팅=독립축).
+- ✅ **입력방식 표**: 14행 작성(POS/리뷰/캐치 ✅확정, 나머지 Phase1).
+- ✅ **외부 source**: HR센트럴/회계센트럴/로스터 LIVE 확정.
+- ✅ **불변량 INV-1~11 정합성**: 정합(INV-4 7축/5축은 작업2에서 ⚠ 재확인 플래그, INV-11 noshow는 Q28 플래그). 충돌 없음.
+- ✅ **데이터 버그 1건 해소**(할인 오분류), webapp 버그 2건 Issue화(#2).
+- 📊 **Phase 1 진입 준비도 = ~85%** (70~90% 구간 = **Phase 1 진입 가능, 일부 잔여 동시 진행**). 잔여: P2/P3/P4/P21 챕터(저위험), CON/SEL 신설 데이터 설계, 14모듈↔축 운영실장 확정, Q28 할인분류 확정.
+
+## Day 8 발견 요약
+1. ✅ 할인 bridge FIX 라이브 적용+검증(operation_error 39→33, gift_certificate +6). 취약구조(mig 의존)→bridge 영구정분류. 재sync 1회 필요.
+2. ✅ 14모듈 = 7축 정합(5축은 퀄리티↔VOC 치환 변형). 마케팅 = 독립 6번째 축.
+3. ✅ CON/SEL HACCP·메뉴 신설 범위 확정([INV-10]). 메뉴 판매량 source ❓.
+4. ✅ 할인 라이브 9분류 확정([INV-11]) — 운영실장 목록과 noshow↔voc_compensation 차이(Q28).
+5. ✅ Phase 0 ~85% = Phase 1 진입 가능.
+
+## Day 8 질문 (❓ 운영 정책만)
+- ❓ Q28: 할인 분류 — noshow는 OP 입력에 미사용(라이브 0)인가? voc_compensation(클레임 응대)을 정식 9분류에 포함 확정?
+- ❓ Q29: 14모듈 실행 레이어를 5축(메뉴) vs 7축(도메인) 중 무엇으로 표시? 퀄리티 컨트롤(1.5/2.5/3.3)을 VOC&CS에 흡수 vs 6번째 축?
+- ❓ Q30: CON/SEL 메뉴 4분면 — 코스 단위 판매수량 추출 경로(POS?) 존재? SEL 코스 변별력 부족 시 대안?
+
+## 다음 (Day 9 / Phase 1 준비)
+- P2/P3/P4/P21 잔여 챕터 line-level 마무리 (17/17 완성)
+- PENTA OS Phase 1 스키마·RLS 초안 (5축 메뉴 + SCM 3계층 워크플로우 + 할인 9분류 + 엑셀 업로드 파서)
+- 재sync 후 할인 분포 재검증
