@@ -528,3 +528,136 @@ m0 마케팅 전사 · m1 이번 주 요약 · m3 META 광고 · m9 고객관리
 - P9 전년대비 / P10 할인·서비스 / P6 음료 챕터 line-level
 - ai_team 8 AI직원 시스템 인벤토리 (Q19) + manual SOP본문 구조
 - Penta O.S(p8 실콘텐츠) 정체 추적
+
+---
+
+# 용어 (TERMINOLOGY) — 이 문서 전체 적용
+- **PENTA OS** = 회사 전사 웹앱 프로젝트(= 이전 표현 "신규 시스템/신규 웹앱/Supabase+Next.js"의 정식 명칭). "Penta"=5축 운영 도메인. 이후 "신규 시스템" 표현 금지, PENTA OS로 통일.
+- ⚠ **5축(운영실장 IA) vs 7축(라이브 대시보드 p8 정의) 불일치** — 아래 [Day6 작업7]·[INV-4] 참조.
+
+---
+
+# 불변량 추가
+- **[INV-4] PENTA OS 5축 IA는 운영실장 확정 모델** (유연운영/원가컨트롤/SCM/VOC&CS/전략적메뉴개발). ⚠ 단 라이브 운영 대시보드 p8의 "Penta O.S"는 **7축**(Easy-Open·퀄리티컨트롤 별도)으로 이미 박혀 있음 → PENTA OS 빌드 시 **5축으로 통일하되 7축 정의를 5축에 흡수**하는 결정 필요(Easy-Open→유연운영, 퀄리티→VOC&CS/위생). 코드 p8 7축을 그대로 답습 금지.
+- **[INV-5] SCM 3계층 권한(현장셰프·매니저 / BOH·FOH팀장 / 운영실장)은 코드에 없음** — 현재 회계 Apps Script는 2계층(ADMIN 2명 vs 팀별 사용자 BOH/FOH)만 구현. 3계층은 구글시트 보호·Workspace 공유 설정에만 존재(코드 밖). → PENTA OS는 3계층 권한을 **명시적으로 코드/RLS에 구현**해야 함(현행은 미구현).
+
+---
+
+# Day 6 (2026-06-24) — PENTA OS 5축 재매핑 + P9/P10/P6 + webapp/ai_team 폴더 + p8 Penta 정체 + IA 다이어그램
+
+## 작업1. 16노드 → PENTA OS 5축 재매핑 검증 ✅ + 누락/교차/3계층
+- ✅ **운영실장 5축 매핑 전 노드 배치 가능** — 아래 IA 다이어그램 참조. 5축에 안 들어가는 노드 = **마케팅 13시트(마케팅팀장 영역), ai_team(실험)** → "보류"로 명시 분리.
+- ✅ **교차 노드**: 지점별로스터(유연운영+HR), 지점별회계(원가컨트롤+SCM 수불), 위생HACCP(VOC&CS+퀄리티), 자체설문(VOC&CS+전략적메뉴개발 일부).
+- ❓→✅ **SCM 3계층 권한 코드 추적 결과 = 코드에 없음**([INV-5]). 회계 Apps Script(거래처관리/발주섹션_시트보호/발주입력팝업)에 구현된 건 **2계층**: ① ADMIN 2명(`ADMIN_EMAILS`, 발주 섹션 전체·C열 계정과목 직접편집) vs ② 팀별 사용자(SETTING U~W열 EMAIL/NAME/TEAM, BOH/FOH 구분, 팝업으로만 입력). "셰프/현장/매니저/팀장/1·2·3차" 용어 코드에 0건 → 3계층은 시트 보호/공유 설정에만.
+
+## 작업2. P9 전년대비(YoY) line-level ✅
+- ✅ 렌더 `ge_…js L635~747`(`id="p9"`). **진행 중 월 제외**(미마감 왜곡, L647), 신규매장 1년 미만 N/A.
+- ✅ 계산(Code.js): `yoy_prevM=(prevM_thisRev−prevM_prevRev)/prevM_prevRev`(L8095~8097, 전월의 정확히 1년 전 동월). YTD YoY(L8101~8108). 객수 YoY(L8098~8100). **비용 YoY=%p차**: 인건비/푸드/변동비/공헌이익 = `prev.*Pct − prev_LY.*Pct`(L7758~7763, +면 악화).
+- ✅ source = `매출_월별`(마감 기준, 진행월 제외). `yoyData[]`(직전12개월 {월,올해,작년,증감,isCurrent}, L8079~8087)은 **P9 전용**(P1 store_yoy의 yearlyMonthly와 별개 구조).
+- ✅ 렌더: 전사 막대+증감라인 / 브랜드 3 / 지점 9 / 지점별 YoY표 / 비용 YoY 4차트.
+- ❓ `prev_LY`(전월의 작년 동월 캐시) 구성 라인 미특정.
+
+## 작업3. P10 할인·서비스 line-level + fact_discount 3자 매핑 ✅
+- ✅ 렌더 `ge_…js L803~943`(`id="p10"`). KPI 4(총액/매출비중/최대분류/전월대비) + 분류별 12개월 스택 + 지점별 + 브랜드 3 + 지점×분류 매트릭스 + 마케팅성 할인 vs 매출 상관. **마케팅성(프로모션·인플루언서) vs 운영성(직원·대표·예약취소·노쇼) 분리**.
+- ✅ source `할인_일별`(syncDiscountData, bf_sync_monthly L189~). 컬럼 분류(cat)는 OP 할인탭 raw값 그대로(강제매핑 없음), 빈값→"미분류".
+- ✅ **3자 매핑표 (대시보드 P10 ↔ fact_discount ↔ admin /discount)**:
+| 대시보드 P10 분류 | fact_discount category_id | admin CAT_LABEL | 일치 |
+|---|---|---|---|
+| 프로모션 | promo | 프로모션 | ✅ |
+| 인플루언서 | influencer | 인플루언서 | ✅ |
+| 직원할인 | staff | 직원할인 | ✅ |
+| 대표님요청 | ceo_request | 대표님요청 | ✅ |
+| 예약취소 | reservation_cancel | 예약취소(warning) | ✅ |
+| 노쇼 | noshow | 노쇼 | ✅ |
+| (빈값=미분류) | operation_error | 운영실수(danger) | ⚠ 대시보드는 "미분류" 표기 |
+| — | prepayment_redemption | 선결제 회수(info) | ⚠ mig284 신설, 대시보드 미반영 |
+| — | vip/coupon/partnership/voc_compensation/senior/corkage/kids/xiaohongshu/private_event | (admin에 17 라벨) | ❓ **admin/Supabase에만, 대시보드·OP 입력엔 없음** |
+- ⚠ **갭**: fact_discount/admin은 16~17 카테고리(우리가 더 세분류), 대시보드 P10은 OP 입력 ~6+미분류만. admin 추가 9개는 OP에서 입력 안 됨 → 어디서 채워지는지 ❓(현재는 미사용 라벨).
+
+## 작업4. P6 음료(Bv) line-level ✅
+- ✅ 렌더 `ge_…js L95~144`(`id="p6"`). KPI 4(음료비중/Food매출/Bv매출/합계) + 주간 12주(절대+비중+지점) + 월간 12개월 + 브랜드 3.
+- ✅ `bvShare = bvBevM/(bvFoodM+bvBevM)`(Code.js L7918), `foodShare=1−bvShare`. source `매출_월별_부가`(syncBvData, bf_sync_monthly L145~186 — OP "대시보드" 탭 r[16]=Food/r[17]=Bv/r[18]=foodPct/r[19]=bvPct) + 주간은 `매출_일별` Bv.
+- ❓ 메뉴별 음료 분석 없음(총합만, 메뉴별은 P15 SZI만).
+
+## 작업5. review_project/webapp/ = "운영실·리뷰 인사이트" SPA ✅ (1P18V 정체 해소)
+- ✅ Apps Script HTMLService **GET 전용 SPA**(doGet→Index, 4페이지 main/action/store/search). title "운영실 · 리뷰 인사이트". `SHEET_ID='1CbmPsm…'`(Code.gs L15) 읽음 — 탭 **3개**: `V2_액션보드`/`V2_항목별빈도`/`통합_분류`. KPI(평균평점/긍정비율/매뉴얼위반/high) + 우선순위·FOH/BOH 차트 + 월별 감정 + 매장 위반랭킹 + Watch List + 리뷰검색.
+- ✅ **인벤토리 #7 "리뷰 인사이트 (1IqYaH-)" = 이 webapp 확정**: `.clasp.standalone.json` scriptId=`1IqYaH-…`. **+ `.clasp.json`(활성)=`1P18V_JfgbTG…`** → **Day1 미확보였던 "1P18V FIC 본체" 정체 = 이 webapp의 활성 배포본** ✅(같은 소스 2 프로젝트 push: 1IqYaH standalone / 1P18V 활성).
+- ⚠ 데이터는 daily_run(review_project)이 1CbmPsm 갱신 → 이 webapp이 읽음(READER, write 0). Streamlit(dashboard.py) 아님, 운영대시보드(1UlH7) P11도 아님(독립).
+- ⚠ 버그: `clearAllCache()`가 stale `bootstrap_v6`만 지움(현행 `bootstrap_v9` 미삭제 → 새로고침 버튼 무효, Code.gs L474 vs 136). timeZone=America/New_York(한국인데).
+
+## 작업6. review_project/ai_team/ = 8 AI직원 (실험 단계) ✅
+- ✅ **실험 확정**: 작업스케줄러 `SZI_AI_*` 등록 0건, history.db 기록 5건 전부 2026-05-08 수동실행(hygiene_monitor 2/complaint_voc 2/kpi_dashboard 1). 정식 9명은 DB 기록 0.
+- ✅ **정식 9명**(config.py): ⓪sop_director(Opus4.7,모드) ①executive(Opus4.7,금18시) ②daily_ops(Sonnet4.6,매일09시) ③review_manager(Haiku4.5,30분) ④marketing(Sonnet,월) ⑤cost_sentinel(Sonnet,월) ⑥reservation(Sonnet,월) ⑦staffing(Sonnet,일) ⑧new_branch_coach(Sonnet,월·목, 광화문 전담). + **미등록 신설 3명**(complaint_voc/kpi_dashboard/hygiene_monitor, 실제로 돈 건 이들).
+- ✅ LLM = **Anthropic Claude 단일**(Haiku4.5/Sonnet4.6/Opus4.7 티어, config.py). OpenAI 없음. 출력 = Slack webhook + Gmail SMTP + SQLite history.db (SOP는 sop.db+md).
+- ⚠ "PENTA OS" 문자열 0건. 대응 로드맵 = `data/ai_employees_spec_v1.md` Phase1(현재 실험)→Phase2("Streamlit 통합+Service Account, 본사 컨펌 대기")→Phase3~4. → 운영실장 "PENTA OS 완성 후 본격화" = spec의 Phase2 게이트. **[설계] PENTA OS 안에 AI 에이전트 자리 미리 비워둘 것**(운영실장 지시).
+
+## 작업7. p8 "Penta O.S" 정체 ✅ — ⚠ 7축 (운영실장 5축과 불일치)
+- ✅ `id="p8"` = **"Penta O.S 세부 현황 (1/2)"**(Code.js L18281). 사이드바 라벨만 "인사이트"(데이터는 이상치탐지지만 p8 마크업은 Penta 현황). pentaAreas **7축**(L17935~17943), p8은 그중 앞 4축 표시(slice 0,4), 각 축 3필드(진행률%/v1.0완성/예정).
+- ✅ **Penta 7축**: ①easy_open(오픈프로세스 표준화) ②op_profit(원가컨트롤·수익화) ③flex_op(유연운영·인력효율) ④quality(퀄리티·품질위생) ⑤menu_dev(전략적메뉴개발·판매량) ⑥scm(발주·재고일원화) ⑦voc_cs(고객피드백루프).
+- ⚠ **불일치(중요)**: 운영실장 IA = **5축**(유연운영/원가컨트롤/SCM/VOC&CS/메뉴개발). 라이브 p8 = **7축**(easy_open·quality 추가). "Penta"=5인데 코드는 7 → [INV-4] 5축 통일 시 easy_open→유연운영, quality→VOC&CS/위생 흡수 결정 필요. **운영실장 검증 요망**.
+
+## Day 6 발견 요약
+1. ✅ 5축 매핑 전 노드 수용(보류 2: 마케팅·ai_team). 교차노드 4. SCM 3계층 코드에 없음([INV-5]).
+2. ✅ P9 YoY(전월·YTD·비용%p, 진행월 제외) / P6 bvShare(매출_월별_부가) line-level.
+3. ✅ P10 3자 매핑 — 6분류 일치, admin 9분류는 대시보드/OP에 없음(우리가 세분류).
+4. ✅ webapp=리뷰인사이트 SPA(1IqYaH/1P18V) → **1P18V 정체 해소**. ai_team 8(+3) 실험 확정(Claude only).
+5. ⚠ **p8 Penta = 7축, 운영실장 5축과 불일치** → [INV-4].
+
+## PENTA OS IA 뼈대 초안 (Mermaid) — 운영실장 검증 기준점
+```mermaid
+flowchart TB
+  HUB["🟢 운영 전략 대시보드 (통합 의사결정)<br/>책임: 운영실장 · 라이브=운영실 대시보드(1UlH7)"]
+
+  subgraph AX1["① 유연운영 — 운영실장+매니저9"]
+    A11["🟢 운영실 대시보드 P1~"]
+    A12["🟡 인력배치모듈"]
+    A13["🟡 지점별로스터(GPS출퇴근앱)"]
+    A14["🟡 HR센트럴"]
+    A15["🟡 급여·계약서모듈"]
+  end
+  subgraph AX2["② 원가컨트롤 — 회계담당(팀장)+운영실장검증"]
+    A21["🟢 운영실 비용결산(회계9쌍 집계)"]
+    A22["🟡 회계센트럴(빌드중)"]
+    A23["🟢 지점별회계 → fact_account_log"]
+  end
+  subgraph AX3["③ SCM — 3계층(현장/팀장/운영실장)"]
+    A31["🟢 회계9쌍 거래처관리+발주시트"]
+    A32["🟡 지점별회계 수불 OCR"]
+    A33["❓ 3계층 권한(코드 미구현, 시트설정만)"]
+  end
+  subgraph AX4["④ VOC & CS — 운영실장+CS"]
+    A41["🟢 VOC FIC(1Ve6 수기)→fact_voc"]
+    A42["🟢 리뷰크롤러(review_project Python→1CbmPsm)"]
+    A43["🟢 리뷰 인사이트 SPA(1IqYaH/1P18V)"]
+    A44["🟡 SOP/매뉴얼(manual/ v1·v2)"]
+    A45["🟡 위생 HACCP PWA"]
+    A46["🟢 자체설문(구글폼3)"]
+  end
+  subgraph AX5["⑤ 전략적 메뉴개발 — 셰프+운영실장"]
+    A51["🟡 레시피+이론원가"]
+    A52["🟡 판매량 분석"]
+    A53["🟢 메뉴성과(P15)"]
+    A54["🟢 음료(P6)"]
+    A55["🟢 시간별매출"]
+  end
+  HOLD["⏸ 보류: 마케팅13시트(마케팅팀장) · ai_team(실험)"]
+
+  HUB --> AX1 & AX2 & AX3 & AX4 & AX5
+  AX3 -.발주·수불.-> AX2
+  AX5 -.이론원가.-> AX2
+  AX4 -.리뷰·SOP.-> AX1
+  AX2 -.원가→메뉴가격.-> AX5
+  HUB -.미통합.-> HOLD
+```
+> 상태 범례: 🟢 라이브 / 🟡 진행 중·부분 / ❓ 미구현·미확인. ⚠ 상태는 누적 인벤토리 기반 추정 포함 — 운영실장 검증 시 확정.
+> ⚠ 라이브 p8 Penta는 7축(Easy-Open·퀄리티 별도). 위 5축 IA는 운영실장 모델 — 7축 흡수 매핑은 [INV-4] 결정 대기.
+
+## Day 6 질문 (❓)
+- ❓ Q22: p8 Penta 7축 vs IA 5축 — easy_open/quality를 5축 어디로 흡수? (운영실장 결정)
+- ❓ Q23: admin /discount의 9개 추가 카테고리(voc_compensation/senior/vip/coupon 등)는 어디서 입력되나, 미사용 예정 라벨인가?
+- ❓ Q24: SCM 3계층 권한을 PENTA OS에서 RLS/코드로 구현 시 — 시트 보호 설정의 현행 권한 매트릭스를 운영실장이 제공 가능한가?
+
+## 다음 (Day 7)
+- P14 인사(HR) / P19 위생(HACCP) / P15 메뉴성과 line-level — VOC&CS·메뉴개발 축 보강
+- HR센트럴/회계센트럴/로스터 GPS앱 source 추적 (유연운영 축 🟡 노드들)
+- manual/ SOP·매뉴얼 본문 v1·v2 구조 (VOC&CS 축 A44)
