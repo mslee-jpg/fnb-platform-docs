@@ -1021,3 +1021,40 @@ flowchart TB
 - 운영실장 clasp push(be_sync_op.js→1UlH7) + syncOpData→syncSalesDailyAll 재실행 → 예약취소금 적재 재검증
 - Q34: OP 1.SA 컬럼 감사 → 캐치페이 인덱스 fix
 - fact_sales_monthly migration + bridge sync(BI 매출_월별→fact) → /cost·/flex YoY 차단해제
+
+---
+
+# Day 12 (2026-06-24) — OP 1.SA 컬럼 감사(Q34 해결) + 캐치페이 FIX + 예약취소금 미해결(매장별 레이아웃 의심) + fact_sales_monthly 스키마
+
+> 운영실장 clasp push(19파일, be_sync_op.js 포함)+재sync 완료 보고. 그러나 reservation_cancel **여전히 0** → OP 1.SA 컬럼 감사로 근본 추적.
+
+## 작업1·2. OP 1.SA 컬럼 감사 = Q34 해결 + 캐치페이 FIX ✅ / 예약취소금 미해결 ⚠
+- ✅ **OP 1.SA 헤더 인덱스 실측 감사**(용산 36열, CON 서울역 43열 — **레이아웃 완전 상이**). 좌표계 sanity 통과(r[7]=전산_합계, r[34]=Bv, r[22]+r[27]=객수 산술검증).
+- ✅ **SZI 용산 확정 인덱스**: 예약취소금=**r[10]**(코드 이미 정답, 운영실장 "J열" 구두표현이 한 칸 오프) / 캐치페이_런치=**r[11]**, 디너=**r[12]** / 객수 r[22]·r[27] / Bv r[34].
+- 🐞→✅ **캐치페이 FIX (Q34)**: be_sync_op.js SZI `c={ck:r[32], cp:r[33]}` → **r[32]/r[33]은 TOTAL 객수/객단가**(오매핑, catch_sales 오염 원인). **`ck:r[11], cp:r[12]`로 수정**(live_src 적용). ✅ 감사 검증.
+- ⚠ **예약취소금 미해결**: 코드(rc:r[10])는 용산 기준 **정답**인데 clasp push+재sync 후에도 fact_sales=0(전 매장, 광화문 6/8 포함). → **가설(Q36): SZI 6개 매장 1.SA 레이아웃이 용산과 다를 수 있음**(감사가 용산만 확인, CON과는 36↔43열로 이미 상이). 광화문 예약취소금이 r[10] 아닌 다른 열일 가능성. OR 최근 90일 window 내 값 희소.
+- 🔴 **재배포 필요**: 캐치페이 fix는 **clasp push(be_sync_op.js→1UlH7)+syncOpData→syncSalesDailyAll** 후 catch_sales 정상화. 예약취소금은 Q36(매장별 감사) 선행.
+
+## 작업3. fact_sales_monthly 스키마 ✅ (migration 288 적용)
+- ✅ 기존 `fact_sales_monthly`(회계중심 stub: year_month/gross_sales/net_sales/cogs/labor_cost…, **0행 미사용**) 발견 → **비파괴 ALTER로 P5/YoY 컬럼 23종 추가**(op_days/target_revenue/monthly_guests/avg_ticket/reservation_*/catchpay/beverage_*/labor~nonrec_pct/food~nonrec_amt/target_*/source_ref UQ). 재사용: net_sales=실매출, gross_sales=총매출, labor_cost=인건비.
+- ⏳ **bridge sync(BI 매출_월별→fact_sales_monthly) = Day13**: [INV-16]대로 **헤더명 기반 매핑**(위치 아님)으로 작성 예정 + sheets-ingest 처리. 그 후 /cost·/flex YoY 데이터 차단 해제.
+
+## 작업4·5. /flex 11섹션 · /cost — 보류 유지 (정직)
+- ⏸ **사유**: ① 캐치페이 fix 재배포 전(catch_sales 오염 잔존) ② 예약취소금 Q36 미해결 ③ fact_sales_monthly 미sync(빈 테이블). **bad data 위 미빌드**([INV-16]). /cost는 monthly sync 후, /flex 채널mix 섹션은 캐치페이 재sync 후.
+- ✅ **안전 섹션은 진행 가능**(차기): 같은요일·지점별일별·런치디너는 total_sales_input(권위)+lunch/dinner(검증완료) 기반 → 데이터 신뢰. YoY·채널mix·예약은 선결 후.
+
+## Day 12 발견 요약
+1. ✅ OP 1.SA 감사 = 캐치페이 근본원인(r[32]/r[33]=객수·객단가) → r[11]/r[12] FIX. Q34 해결.
+2. ⚠ 예약취소금: 용산 코드 정답인데 fact 0 → **매장별 1.SA 레이아웃 편차 의심**(Q36, 용산↔CON 36↔43열로 이미 입증된 편차).
+3. ✅ fact_sales_monthly ALTER(P5/YoY 컬럼). bridge sync Day13.
+4. ⏸ /flex-11·/cost 보류(데이터 선결).
+5. 🔑 **[INV-16] 강화**: OP 시트는 **매장별 레이아웃이 다름** → 단일 위치매핑 위험. PENTA OS 엑셀 파서 = 매 파일 헤더 기반 + 매장별 검증.
+
+## Day 12 질문 (❓)
+- ❓ **Q36**(기술 감사, 클로드 코드): SZI 6개 매장(특히 광화문) 1.SA 레이아웃이 용산(36열)과 동일한가? 다르면 syncOpData 단일 SZI 매핑이 일부 매장에서 오작동(예약취소금 0 원인). → Day13 6매장 1.SA 헤더 일괄 감사.
+- ❓ Q35(운영 정책, 재확인): 일별 캐치페이 분해가 PENTA OS에 필요한가, 월별 비율([INV-2])로 충분한가?
+
+## 다음 (Day 13)
+- Q36: SZI 6 + CON/SEL 3 매장 1.SA 레이아웃 일괄 감사 → syncOpData 매장별 매핑 보정(예약취소금 + 캐치페이 전 매장 정합)
+- 캐치페이 fix 재배포(clasp push)+재sync → catch_sales 정상 검증
+- fact_sales_monthly bridge sync(헤더 기반) → /cost·/flex YoY 빌드 재개
