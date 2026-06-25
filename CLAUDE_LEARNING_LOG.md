@@ -1220,3 +1220,34 @@ flowchart TB
 ## Day 16 질문 (❓) / 다음
 - ❓ **Q39**(운영실장 확인): SZI **서울역·이스트폴**이 전구간 캐치페이=0(소스 자체 0). 실제 캐치 미사용인지, OP 1.SA r[11]/r[12] 입력 누락인지? (파이프 결함 아님 — 소스 데이터 질문.)
 - ➡ **Phase 1 본격 빌드(Day 17+)**: fact_sales_monthly bridge sync(헤더 기반) → /flex 11섹션 + /cost YoY 차단해제.
+
+---
+
+# Day 17 (2026-06-25) — Phase 1 진입: 캐치 운영메타 + catch 회귀 적발·가드뷰 + CON 캐치 소실 확정
+
+> Phase 1 시작하자마자 catch 데이터가 Day16 "100%"에서 회귀한 것을 검증이 적발. 근본원인=catch 파이프 고정인덱스 취약성. 운영메타+가드뷰로 방어, CON 소실은 시트변경으로 확정.
+
+## [INV-2 재재갱신] 캐치페이 매장별 운영 시점 (운영실장 Day17 답)
+- 전 기간 운영: SZI 용산/성수/여의도, CON 서울역. 중간중단: SZI 서울역(4월부터)·이스트폴(2월부터)·광화문(1월오픈·4월부터). 전 기간 미운영: SEL 잠실·그랑서울.
+- 현재 활성 = 4매장. **미운영 기간 catch=0 은 정합** → UI '미운영' 라벨, 의존도 분석은 운영기간 한정.
+
+## 작업1. 매장별 캐치 운영메타 ✅
+- `dim_store_catch_pay_period`(active_from/active_to) + `is_catch_active(store,date)` 함수. 운영실장 데이터 7매장 active period(SEL 2 = 전기간 미운영).
+
+## 작업1.5. catch 회귀 적발 🔴
+- 🐞 **Day16 "100%"가 회귀**: 야간 sync가 전 행 덮음. EASTPOLE/SEOULSTATION/GWANGHWAMUN catch=객단가 재발, CON 서울역 89일→3일(실캐치 소실), SEL 2 = 0 유지.
+- 🔬 **근본원인 = 고정인덱스 취약성**: syncOpData가 OP 1.SA를 고정 인덱스로 읽음. 매장별 1.SA 레이아웃이 다르거나 운영 중 컬럼 편집되면 깨짐. Day16 정합은 스냅샷이었고 다음 sync가 재파괴.
+
+## 작업1.6. 가드뷰 ✅
+- `v_fact_sales_daily` = catch_active 플래그 + catch_sales_gated(미운영기간 강제 0). 재sync 무관 영구방어. UI는 이 뷰 사용.
+- 효과: 미운영 매장 객단가 누출 제거. ⚠ 잔여: 일부 매장 late-March active 경계일이 여전히 객단가(operations manager "4월 중단"이 실제 3월 하순부터 누출).
+
+## 작업1.7. CON 캐치 소실 시나리오 확정 (Q40)
+- ✅ **코드 매핑 정확**: CON 1.SA 일별 col6 = 기타매출/캐치페이 = G열. canonical→r[6] 정확(운영실장 확인 일치).
+- 🔬 **BI 현재**: CON 캐치페이 = 전 월 0, 전산매출은 real 유지 → 캐치 데이터만 파이프에서 소실.
+- 🟰 **확정**: Day16 시점 CON 캐치 real → 이후 sync 0. 같은 코드·전산 유지 → 9:30~04:29 사이 소스 변경 = 운영실장 가설 확정. active라 가드뷰로 복구 불가.
+
+## Day 17 질문 (❓) / 다음
+- ❓ **Q41**(운영실장 라이브 시트): CON 서울역 1.SA G열(캐치페이) 6월 데이터 비었는지/컬럼 시프트 확인 → 복원/교정.
+- ❓ **Q42**(구조): syncOpData를 header-based 매핑(monthly sync 방식)으로 재작성 검토 → 고정인덱스 취약성 근본 제거.
+- ➡ 작업2(fact_sales_monthly 브리지) + 작업3(/flex 안전섹션, 가드뷰 기반). 작업4=Q41 후, 작업5=작업2 후.
